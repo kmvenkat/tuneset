@@ -16,20 +16,10 @@ export function useSchedule() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(scheduleBlocks));
   }, [scheduleBlocks]);
 
-  const addBlock = useCallback((playlist, colorIndex = 0, totalDurationSeconds) => {
+  const addBlock = useCallback((playlist) => {
     const now = new Date();
     const jsDay = now.getDay();
     const dayIndex = jsDay === 0 ? 6 : jsDay - 1;
-
-    const durationMinutes = (totalDurationSeconds && isFinite(totalDurationSeconds) && totalDurationSeconds > 0)
-      ? Math.max(120, Math.min(Math.round(totalDurationSeconds / 60), 1440))
-      : 120;
-
-    const startHour = 9;
-    const startMinute = 0;
-    const endTotalMinutes = startHour * 60 + startMinute + durationMinutes;
-    const endHour = Math.min(Math.floor(endTotalMinutes / 60), 23);
-    const endMinute = endTotalMinutes % 60;
 
     const newBlock = {
       id: `block-${Date.now()}`,
@@ -37,10 +27,10 @@ export function useSchedule() {
       playlistName: playlist.name,
       playlistColor: playlist.color,
       days: [dayIndex],
-      startHour,
-      startMinute,
-      endHour,
-      endMinute,
+      startHour: 9,
+      startMinute: 0,
+      endHour: 11,
+      endMinute: 0,
       shuffle: false,
     };
     setScheduleBlocks(prev => [...prev, newBlock]);
@@ -48,15 +38,9 @@ export function useSchedule() {
   }, []);
 
   const addBlockAt = useCallback((blockConfig) => {
-    const durationMinutes = (blockConfig.totalDurationSeconds && isFinite(blockConfig.totalDurationSeconds))
-      ? Math.max(120, Math.min(Math.round(blockConfig.totalDurationSeconds / 60), 1440))
-      : 120;
-
-    const endTotalMinutes = blockConfig.startHour * 60 + blockConfig.startMinute + durationMinutes;
-    const computedEndHour = Math.min(Math.floor(endTotalMinutes / 60), 23);
-    const computedEndMinute = endTotalMinutes % 60;
-
-    const providedDuration = (blockConfig.endHour * 60 + blockConfig.endMinute) - (blockConfig.startHour * 60 + blockConfig.startMinute);
+    const endTotalMinutes = blockConfig.startHour * 60 + blockConfig.startMinute + 120;
+    const endHour = Math.min(Math.floor(endTotalMinutes / 60), 23);
+    const endMinute = endTotalMinutes % 60;
 
     const newBlock = {
       id: `block-${Date.now()}`,
@@ -66,8 +50,8 @@ export function useSchedule() {
       days: [blockConfig.dayIndex],
       startHour: blockConfig.startHour,
       startMinute: blockConfig.startMinute,
-      endHour: providedDuration >= 120 ? blockConfig.endHour : computedEndHour,
-      endMinute: providedDuration >= 120 ? blockConfig.endMinute : computedEndMinute,
+      endHour,
+      endMinute,
       shuffle: false,
     };
     setScheduleBlocks(prev => [...prev, newBlock]);

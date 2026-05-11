@@ -311,11 +311,10 @@ export default function App() {
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────
-  const handlePlaylistClick = useCallback(async (playlist, colorIndex) => {
-    const tracks = await fetchPlaylistTracks(playlist.id);
-    const totalDurationSeconds = tracks?.totalDuration ?? 0;
-    const blockId = schedule.addBlock(playlist, colorIndex, totalDurationSeconds);
+  const handlePlaylistClick = useCallback((playlist) => {
+    const blockId = schedule.addBlock(playlist);
     setSelectedBlockId(blockId);
+    fetchPlaylistTracks(playlist.id).catch(() => {});
   }, [schedule, fetchPlaylistTracks]);
 
   const handleAddBlockFromDrop = useCallback((config) => {
