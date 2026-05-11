@@ -21,10 +21,12 @@ export function usePlayer() {
   const indexRef = useRef(0);
   const progressInterval = useRef(null);
   const skippedRef = useRef(new Set());
+  const shuffleRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { indexRef.current = currentSongIndex; }, [currentSongIndex]);
+  useEffect(() => { shuffleRef.current = shuffle; }, [shuffle]);
 
   // ── Init YouTube player on mount ─────────────────────────────────
   useEffect(() => {
@@ -84,12 +86,26 @@ export function usePlayer() {
               } else if (event.data === YT.PlayerState.ENDED) {
                 setIsPlaying(false);
                 const findNextPlayable = (fromIdx) => {
-                  for (let j = fromIdx; j < queueRef.current.length; j++) {
-                    if (!skippedRef.current.has(queueRef.current[j]?.videoId)) return j;
+                  const qc = queueRef.current;
+                  for (let j = fromIdx; j < qc.length; j++) {
+                    if (!skippedRef.current.has(qc[j]?.videoId)) return j;
                   }
                   return -1;
                 };
-                const nextIdx = findNextPlayable(indexRef.current + 1);
+                let nextIdx = findNextPlayable(indexRef.current + 1);
+                if (nextIdx === -1) {
+                  if (shuffleRef.current) {
+                    const reshuffled = [...queueRef.current];
+                    for (let i = reshuffled.length - 1; i > 0; i--) {
+                      const j = Math.floor(Math.random() * (i + 1));
+                      [reshuffled[i], reshuffled[j]] = [reshuffled[j], reshuffled[i]];
+                    }
+                    queueRef.current = reshuffled;
+                    setQueue(reshuffled);
+                    indexRef.current = -1;
+                  }
+                  nextIdx = findNextPlayable(0);
+                }
                 if (nextIdx !== -1) {
                   const nextSong = queueRef.current[nextIdx];
                   indexRef.current = nextIdx;
@@ -102,7 +118,7 @@ export function usePlayer() {
               }
             },
             onError: (event) => {
-              const q = queueRef.current;
+              let q = queueRef.current;
               const curIdx = indexRef.current;
               const cur = q[curIdx];
               console.log(
@@ -117,32 +133,60 @@ export function usePlayer() {
               if (cur?.videoId) skippedRef.current.add(cur.videoId);
               const playlistId = cur?.playlistId;
 
-              const playable = (j) => {
-                const song = q[j];
+              const playable = (arr, j) => {
+                const song = arr[j];
                 return song && !skippedRef.current.has(song.videoId);
               };
 
-              const findNextSamePlaylistFrom = (from) => {
+              const findNextSamePlaylistFrom = (arr, from) => {
                 if (playlistId == null) return -1;
-                for (let j = from; j < q.length; j++) {
-                  if (!playable(j)) continue;
-                  if (q[j].playlistId === playlistId) return j;
+                for (let j = from; j < arr.length; j++) {
+                  if (!playable(arr, j)) continue;
+                  if (arr[j].playlistId === playlistId) return j;
                 }
                 return -1;
               };
 
-              const findNextAnyFrom = (from) => {
-                for (let j = from; j < q.length; j++) {
-                  if (playable(j)) return j;
+              const findNextAnyFrom = (arr, from) => {
+                for (let j = from; j < arr.length; j++) {
+                  if (playable(arr, j)) return j;
                 }
                 return -1;
               };
 
-              let nextIdx = findNextSamePlaylistFrom(curIdx + 1);
-              if (nextIdx === -1) nextIdx = findNextAnyFrom(curIdx + 1);
+              const resolveNext = (arr) => {
+                let idx = findNextSamePlaylistFrom(arr, curIdx + 1);
+                if (idx === -1) idx = findNextAnyFrom(arr, curIdx + 1);
+                if (idx === -1) {
+                  idx = findNextSamePlaylistFrom(arr, 0);
+                  if (idx === -1) idx = findNextAnyFrom(arr, 0);
+                }
+                return idx;
+              };
+
+              let nextIdx = resolveNext(q);
+
               if (nextIdx === -1) {
-                nextIdx = findNextSamePlaylistFrom(0);
-                if (nextIdx === -1) nextIdx = findNextAnyFrom(0);
+                const entireQueueInSkipped =
+                  q.length > 0 &&
+                  q.every((s) => s?.videoId && skippedRef.current.has(s.videoId));
+                if (entireQueueInSkipped) {
+                  console.log("All tracks unplayable, stopping");
+                  setIsPlaying(false);
+                  return;
+                }
+                if (shuffleRef.current) {
+                  const reshuffled = [...queueRef.current];
+                  for (let i = reshuffled.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [reshuffled[i], reshuffled[j]] = [reshuffled[j], reshuffled[i]];
+                  }
+                  queueRef.current = reshuffled;
+                  setQueue(reshuffled);
+                  indexRef.current = -1;
+                  q = queueRef.current;
+                  nextIdx = resolveNext(q);
+                }
               }
 
               if (nextIdx === -1) {
