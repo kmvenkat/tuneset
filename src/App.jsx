@@ -10,6 +10,51 @@ import { getOrderedActiveBlocksForNow } from "./utils/scheduleSegments";
 
 const STORAGE_KEY = "tuneset_schedule_v1";
 
+/** Re-order active blocks using grid visual order for the current time segment; fallback keeps getOrdered order. */
+function sortActiveBlocksByGridVisualOrder(activeBlocks, blockOrderRef) {
+  if (activeBlocks.length <= 1) return [...activeBlocks];
+
+  const now = new Date();
+  const jsDay = now.getDay();
+  const dayIndex = jsDay === 0 ? 6 : jsDay - 1;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  let matchedKey = null;
+  let matchedOrder = null;
+  for (const [key, order] of blockOrderRef.current.entries()) {
+    const parts = key.split("-");
+    const segDay = parseInt(parts[0], 10);
+    const segStart = parseInt(parts[1], 10);
+    const segEnd = parseInt(parts[2], 10);
+    if (Number.isNaN(segDay) || Number.isNaN(segStart) || Number.isNaN(segEnd)) continue;
+    if (segDay === dayIndex && currentMinutes >= segStart && currentMinutes < segEnd) {
+      matchedKey = key;
+      matchedOrder = order;
+      break;
+    }
+  }
+
+  const orderedIds = matchedOrder;
+  console.log(
+    "SORT_DEBUG",
+    JSON.stringify({
+      segmentKey: matchedKey,
+      orderedIds,
+      activeBlockIds: activeBlocks.map((b) => b.id),
+      reason: orderedIds ? "found" : "not found",
+    })
+  );
+  if (!orderedIds?.length) return [...activeBlocks];
+
+  const rank = (blockId) => {
+    const i = orderedIds.indexOf(blockId);
+    if (i !== -1) return i;
+    return 1000 + activeBlocks.findIndex((b) => b.id === blockId);
+  };
+
+  return [...activeBlocks].sort((a, b) => rank(a.id) - rank(b.id));
+}
+
 const YOUTUBE_OAUTH_CLIENT_ID =
   "682592448510-2eurtje38jusp3km1cn6pfpdj4art73s.apps.googleusercontent.com";
 const YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
@@ -42,6 +87,8 @@ export default function App() {
   );
   const playlistTracksRef = useRef(new Map()); // playlistId -> songs[]
   const currentQueueKeyRef = useRef(null);
+  /** Segment key → block ids left-to-right as reported by ScheduleGrid. */
+  const blockOrderRef = useRef(new Map());
 
   const loadPlaylists = useCallback(async (token) => {
     try {
@@ -176,34 +223,75 @@ export default function App() {
     fetchTracksRef.current = fetchPlaylistTracks;
   }, [fetchPlaylistTracks]);
 
+  const handleBlocksReordered = useCallback((segmentKey, blockIds) => {
+    blockOrderRef.current.set(segmentKey, [...blockIds]);
+  }, []);
+
   // ── Scheduler ─────────────────────────────────────────────────────
   const runSchedulerTick = useCallback(async () => {
     if (!localStorage.getItem("yt_access_token")) return;
 
     const activeBlocks = getActiveBlocksOrderedForScheduler();
-    console.log("SCHEDULER_TICK", JSON.stringify({
-      time: new Date().toLocaleTimeString(),
-      activeBlocks: activeBlocks.length,
-      blocks: activeBlocks.map(b => b.playlistName),
-    }));
-
     if (activeBlocks.length === 0) return;
 
+    console.log(
+      "BLOCK_ORDER_REF",
+      JSON.stringify(
+        [...blockOrderRef.current.entries()].map(([k, v]) => ({ key: k, order: v }))
+      )
+    );
+
+    const sortedActive = sortActiveBlocksByGridVisualOrder(activeBlocks, blockOrderRef);
+    console.log("SCHEDULER_TICK", JSON.stringify({
+      time: new Date().toLocaleTimeString(),
+      activeBlocks: sortedActive.length,
+      blocks: sortedActive.map(b => b.playlistName),
+    }));
+
     const trackArrays = await Promise.all(
-      activeBlocks.map(b => fetchTracksRef.current(b.playlistId))
+      sortedActive.map(async (b) => {
+        const tracks = await fetchTracksRef.current(b.playlistId);
+        if (b.shuffle) {
+          const shuffled = [...tracks];
+          for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+          }
+          return shuffled;
+        }
+        return tracks;
+      })
     );
 
     const interleaved = [];
     const maxLen = Math.max(...trackArrays.map(a => a.length), 0);
     for (let i = 0; i < maxLen; i++) {
-      for (const arr of trackArrays) {
-        if (i < arr.length) interleaved.push(arr[i]);
+      for (let p = 0; p < trackArrays.length; p++) {
+        if (i < trackArrays[p].length) {
+          interleaved.push({
+            ...trackArrays[p][i],
+            playlistId: sortedActive[p].playlistId,
+            playlistName: sortedActive[p].playlistName,
+            playlistColor: sortedActive[p].playlistColor,
+          });
+        }
       }
     }
 
+    console.log(
+      "QUEUE_SAMPLE",
+      JSON.stringify(
+        interleaved.slice(0, 6).map((t) => ({
+          title: t.title?.substring(0, 30),
+          playlistName: t.playlistName,
+          playlistId: !!t.playlistId,
+        }))
+      )
+    );
+
     if (interleaved.length === 0) return;
 
-    const queueKey = activeBlocks.map(b => b.id).join(",");
+    const queueKey = sortedActive.map(b => b.id).join(",");
     if (queueKey !== currentQueueKeyRef.current) {
       currentQueueKeyRef.current = queueKey;
       console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
@@ -288,6 +376,7 @@ export default function App() {
             onRemoveBlock={schedule.removeBlock}
             onPlay={player.play}
             onAddBlock={handleAddBlockFromDrop}
+            onBlocksReordered={handleBlocksReordered}
           />
         </div>
         <NowPlayingBar

@@ -20,7 +20,7 @@ export function usePlayer() {
   const queueRef = useRef([]);
   const indexRef = useRef(0);
   const progressInterval = useRef(null);
-  const consecutiveErrors = useRef(0);
+  const skippedRef = useRef(new Set());
 
   // Keep refs in sync
   useEffect(() => { queueRef.current = queue; }, [queue]);
@@ -42,13 +42,14 @@ export function usePlayer() {
           height: "1",
           width: "1",
           playerVars: {
-            autoplay: 0,
+            autoplay: 1,
             controls: 0,
             disablekb: 1,
             fs: 0,
             modestbranding: 1,
             playsinline: 1,
             mute: 1,
+            rel: 0,
             origin: window.location.origin,
           },
           events: {
@@ -64,9 +65,17 @@ export function usePlayer() {
               }
             },
             onStateChange: (event) => {
+              console.log(
+                "YT_STATE",
+                JSON.stringify({
+                  state: event.data,
+                  title: queueRef.current[indexRef.current]?.title?.substring(0, 30),
+                  playlistName: queueRef.current[indexRef.current]?.playlistName,
+                  index: indexRef.current,
+                })
+              );
               const YT = window.YT;
               if (event.data === YT.PlayerState.PLAYING) {
-                consecutiveErrors.current = 0;
                 setIsPlaying(true);
                 const d = event.target.getDuration();
                 if (d) setDuration(d);
@@ -74,8 +83,14 @@ export function usePlayer() {
                 setIsPlaying(false);
               } else if (event.data === YT.PlayerState.ENDED) {
                 setIsPlaying(false);
-                const nextIdx = indexRef.current + 1;
-                if (nextIdx < queueRef.current.length) {
+                const findNextPlayable = (fromIdx) => {
+                  for (let j = fromIdx; j < queueRef.current.length; j++) {
+                    if (!skippedRef.current.has(queueRef.current[j]?.videoId)) return j;
+                  }
+                  return -1;
+                };
+                const nextIdx = findNextPlayable(indexRef.current + 1);
+                if (nextIdx !== -1) {
                   const nextSong = queueRef.current[nextIdx];
                   indexRef.current = nextIdx;
                   setCurrentSongIndex(nextIdx);
@@ -87,21 +102,62 @@ export function usePlayer() {
               }
             },
             onError: (event) => {
-              console.error("YT player error", event.data);
-              consecutiveErrors.current = (consecutiveErrors.current || 0) + 1;
-              if (consecutiveErrors.current < 3) {
-                const nextIdx = indexRef.current + 1;
-                if (nextIdx < queueRef.current.length) {
-                  const nextSong = queueRef.current[nextIdx];
-                  indexRef.current = nextIdx;
-                  setCurrentSongIndex(nextIdx);
-                  setCurrentSong(nextSong);
-                  playerRef.current?.loadVideoById(nextSong.videoId);
+              const q = queueRef.current;
+              const curIdx = indexRef.current;
+              const cur = q[curIdx];
+              console.log(
+                "TRACK_ERROR",
+                JSON.stringify({
+                  errorCode: event.data,
+                  videoId: queueRef.current[indexRef.current]?.videoId,
+                  title: queueRef.current[indexRef.current]?.title,
+                  playlistName: queueRef.current[indexRef.current]?.playlistName,
+                })
+              );
+              if (cur?.videoId) skippedRef.current.add(cur.videoId);
+              const playlistId = cur?.playlistId;
+
+              const playable = (j) => {
+                const song = q[j];
+                return song && !skippedRef.current.has(song.videoId);
+              };
+
+              const findNextSamePlaylistFrom = (from) => {
+                if (playlistId == null) return -1;
+                for (let j = from; j < q.length; j++) {
+                  if (!playable(j)) continue;
+                  if (q[j].playlistId === playlistId) return j;
                 }
-              } else {
-                console.warn("Too many consecutive errors, stopping playback");
-                consecutiveErrors.current = 0;
+                return -1;
+              };
+
+              const findNextAnyFrom = (from) => {
+                for (let j = from; j < q.length; j++) {
+                  if (playable(j)) return j;
+                }
+                return -1;
+              };
+
+              let nextIdx = findNextSamePlaylistFrom(curIdx + 1);
+              if (nextIdx === -1) nextIdx = findNextAnyFrom(curIdx + 1);
+              if (nextIdx === -1) {
+                nextIdx = findNextSamePlaylistFrom(0);
+                if (nextIdx === -1) nextIdx = findNextAnyFrom(0);
               }
+
+              if (nextIdx === -1) {
+                console.log("All tracks unplayable, stopping");
+                setIsPlaying(false);
+                return;
+              }
+
+              const nextSong = q[nextIdx];
+              indexRef.current = nextIdx;
+              setCurrentSongIndex(nextIdx);
+              setCurrentSong(nextSong);
+              setElapsed(0);
+              setProgress(0);
+              playerRef.current?.loadVideoById(nextSong.videoId);
             },
           },
         });
@@ -130,6 +186,7 @@ export function usePlayer() {
   // ── Playback controls ────────────────────────────────────────────
   const play = useCallback((songQueue, startIndex = 0) => {
     if (!songQueue?.length) return;
+    skippedRef.current = new Set();
     setQueue(songQueue);
     queueRef.current = songQueue;
     const song = songQueue[startIndex];
@@ -157,9 +214,13 @@ export function usePlayer() {
   }, []);
 
   const handleNext = useCallback(() => {
-    const nextIdx = indexRef.current + 1;
-    if (nextIdx >= queueRef.current.length) return;
-    const nextSong = queueRef.current[nextIdx];
+    const q = queueRef.current;
+    let nextIdx = indexRef.current + 1;
+    while (nextIdx < q.length && skippedRef.current.has(q[nextIdx].videoId)) {
+      nextIdx += 1;
+    }
+    if (nextIdx >= q.length) return;
+    const nextSong = q[nextIdx];
     indexRef.current = nextIdx;
     setCurrentSongIndex(nextIdx);
     setCurrentSong(nextSong);
@@ -175,9 +236,13 @@ export function usePlayer() {
       setProgress(0);
       return;
     }
-    const prevIdx = Math.max(0, indexRef.current - 1);
-    const prevSong = queueRef.current[prevIdx];
-    if (!prevSong) return;
+    const q = queueRef.current;
+    let prevIdx = indexRef.current - 1;
+    while (prevIdx >= 0 && skippedRef.current.has(q[prevIdx].videoId)) {
+      prevIdx -= 1;
+    }
+    if (prevIdx < 0) return;
+    const prevSong = q[prevIdx];
     indexRef.current = prevIdx;
     setCurrentSongIndex(prevIdx);
     setCurrentSong(prevSong);

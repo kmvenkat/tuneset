@@ -59,7 +59,7 @@ function moveIdToIndex(ids, id, toIdx) {
 
 export default function ScheduleGrid({
   scheduleBlocks, selectedBlockId, onBlockClick, onGridClick,
-  onUpdateBlock, onRemoveBlock, onPlay, onAddBlock,
+  onUpdateBlock, onRemoveBlock, onPlay, onAddBlock, onBlocksReordered,
 }) {
   const gridRef = useRef(null);
   const firstColBodyRef = useRef(null);
@@ -147,6 +147,20 @@ export default function ScheduleGrid({
     orderMapRef.current = new Map(Object.entries(merged));
     setSegmentOrder(merged);
   }, [scheduleBlocks]);
+
+  useEffect(() => {
+    if (!onBlocksReordered) return;
+    for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+      const dayBlocks = scheduleBlocks.filter((b) => b.days.includes(dayIdx));
+      const segments = buildDaySegments(dayBlocks);
+      for (const seg of segments) {
+        const segKey = segmentOrderKey(dayIdx, seg.segStart, seg.segEnd);
+        const orderedIds =
+          segmentOrder[segKey] ?? defaultBlockOrder(seg.blocks, scheduleBlocks);
+        onBlocksReordered(segKey, orderedIds);
+      }
+    }
+  }, [scheduleBlocks, segmentOrder, onBlocksReordered]);
 
   useEffect(() => {
     const id = setInterval(() => setNowHour(getCurrentHour()), 60000);

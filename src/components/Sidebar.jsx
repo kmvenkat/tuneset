@@ -40,6 +40,7 @@ export default function Sidebar({
                 role="button"
                 tabIndex={0}
                 className="sidebar-pl-row"
+                style={{ "--pl-accent": accent }}
                 draggable
                 onClick={() => onPlaylistClick?.(pl, i)}
                 onKeyDown={(e) => {
@@ -55,7 +56,7 @@ export default function Sidebar({
                   e.dataTransfer.effectAllowed = "copy";
                 }}
               >
-                <div className="sidebar-pl-thumb" style={{ "--pl-accent": accent }}>
+                <div className="sidebar-pl-thumb">
                   {coverUrl ? (
                     <img className="sidebar-pl-thumb-img" src={coverUrl} alt="" />
                   ) : (
@@ -64,6 +65,18 @@ export default function Sidebar({
                 </div>
                 <span className="sidebar-pl-name">{pl.name}</span>
                 {count > 0 && <span className="sidebar-pl-count">{count}</span>}
+                <button
+                  type="button"
+                  className="sidebar-pl-add"
+                  aria-label={`Add ${pl.name} to schedule`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlaylistClick?.(pl, i);
+                  }}
+                >
+                  +
+                </button>
               </div>
             );
           })}
