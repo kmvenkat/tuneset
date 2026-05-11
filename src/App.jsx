@@ -225,6 +225,11 @@ export default function App() {
     fetchPlaylistTracks(playlist.id);
   }, [schedule, fetchPlaylistTracks]);
 
+  const handleAddBlockFromDrop = useCallback((config) => {
+    schedule.addBlockAt(config);
+    fetchPlaylistTracks(config.playlistId);
+  }, [schedule, fetchPlaylistTracks]);
+
   const handleBlockClick = useCallback((blockId) => {
     setSelectedBlockId(prev => prev === blockId ? null : blockId);
   }, []);
@@ -285,6 +290,7 @@ export default function App() {
             onUpdateBlock={schedule.updateBlock}
             onRemoveBlock={schedule.removeBlock}
             onPlay={player.play}
+            onAddBlock={handleAddBlockFromDrop}
           />
         </div>
         <NowPlayingBar

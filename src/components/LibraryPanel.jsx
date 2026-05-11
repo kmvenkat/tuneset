@@ -38,9 +38,17 @@ export default function LibraryPanel({ playlists = [], scheduleBlocks, onPlaylis
           return (
             <button
               key={pl.id}
+              type="button"
+              draggable
               className={`library-item ${isScheduled ? "scheduled" : ""}`}
               onClick={() => onPlaylistClick(pl, i)}
               style={{ "--pl-color": color }}
+              onDragStart={(e) => {
+                e.dataTransfer.setData("playlistId", pl.id);
+                e.dataTransfer.setData("playlistName", pl.name);
+                e.dataTransfer.setData("playlistColor", pl.color ?? color);
+                e.dataTransfer.effectAllowed = "copy";
+              }}
             >
               {isScheduled && <div className="library-item-stripe" />}
               <div className="library-item-art" style={{ "--pl-color": color }}>
@@ -54,13 +62,12 @@ export default function LibraryPanel({ playlists = [], scheduleBlocks, onPlaylis
                 <span className="library-item-name">{pl.name}</span>
                 <span className="library-item-meta">{pl.songCount ?? 0} songs</span>
               </div>
-              {isScheduled ? (
-                <div className="library-item-check">
-                  {blockCount > 1 ? blockCount : "✓"}
-                </div>
-              ) : (
-                <div className="library-item-add">+</div>
-              )}
+              <div className="library-item-actions">
+                {blockCount > 0 && (
+                  <span className="library-item-count">{blockCount}</span>
+                )}
+                <span className="library-item-add">+</span>
+              </div>
             </button>
           );
         })}

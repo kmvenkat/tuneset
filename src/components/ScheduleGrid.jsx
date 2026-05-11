@@ -27,6 +27,15 @@ function fractionToHour(frac) {
   return { hour: Math.min(hour, 23), minute: minute >= 60 ? 0 : minute };
 }
 
+/** Map vertical fraction [0,1] of day column to start time, snapped to nearest 30 minutes. */
+function fractionToHourSnap30(frac) {
+  const clamped = Math.max(0, Math.min(1, frac));
+  const totalMin = clamped * TOTAL_HOURS * 60;
+  const snapped = Math.round(totalMin / 30) * 30;
+  const capped = Math.min(snapped, 23 * 60 + 30);
+  return { hour: Math.floor(capped / 60), minute: capped % 60 };
+}
+
 function defaultBlockOrder(blocks, scheduleBlocks) {
   return [...blocks]
     .sort(
@@ -50,7 +59,7 @@ function moveIdToIndex(ids, id, toIdx) {
 
 export default function ScheduleGrid({
   scheduleBlocks, selectedBlockId, onBlockClick, onGridClick,
-  onUpdateBlock, onRemoveBlock, onPlay
+  onUpdateBlock, onRemoveBlock, onPlay, onAddBlock,
 }) {
   const gridRef = useRef(null);
   const firstColBodyRef = useRef(null);
@@ -64,7 +73,73 @@ export default function ScheduleGrid({
   const [colBodyHeight, setColBodyHeight] = useState(0);
   const [popoverPos, setPopoverPos] = useState(null);
   const [nowHour, setNowHour] = useState(getCurrentHour());
+  const [dragOverDayIdx, setDragOverDayIdx] = useState(null);
   const todayIdx = getCurrentDayIndex();
+
+  useEffect(() => {
+    const clear = () => setDragOverDayIdx(null);
+    window.addEventListener("dragend", clear);
+    return () => window.removeEventListener("dragend", clear);
+  }, []);
+
+  const handleColumnDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleColumnDragEnter = useCallback((e, dayIdx) => {
+    e.preventDefault();
+    setDragOverDayIdx(dayIdx);
+  }, []);
+
+  const handleColumnDragLeave = useCallback((e, dayIdx) => {
+    const related = e.relatedTarget;
+    if (!related || !e.currentTarget.contains(related)) {
+      setDragOverDayIdx((cur) => (cur === dayIdx ? null : cur));
+    }
+  }, []);
+
+  const handleDropOnDay = useCallback((e, dayIdx) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverDayIdx(null);
+    if (!onAddBlock) return;
+
+    const playlistId = e.dataTransfer.getData("playlistId");
+    if (!playlistId) return;
+
+    const playlistName = e.dataTransfer.getData("playlistName") || "Playlist";
+    let playlistColor = e.dataTransfer.getData("playlistColor");
+    if (!playlistColor) playlistColor = "#BF5AF2";
+
+    const colBody = e.currentTarget.classList.contains("grid-col-body")
+      ? e.currentTarget
+      : e.currentTarget.closest(".grid-col-body");
+    if (!colBody) return;
+
+    const rect = colBody.getBoundingClientRect();
+    const h = rect.height || 1;
+    const frac = (e.clientY - rect.top) / h;
+    const { hour, minute } = fractionToHourSnap30(frac);
+
+    const startTotal = hour * 60 + minute;
+    let endTotal = startTotal + 120;
+    const maxEnd = 23 * 60 + 59;
+    endTotal = Math.min(endTotal, maxEnd);
+    const endHour = Math.floor(endTotal / 60);
+    const endMinute = endTotal % 60;
+
+    onAddBlock({
+      playlistId,
+      playlistName,
+      playlistColor,
+      dayIndex: dayIdx,
+      startHour: hour,
+      startMinute: minute,
+      endHour,
+      endMinute,
+    });
+  }, [onAddBlock]);
 
   useEffect(() => {
     const merged = mergeSegmentOrderObject(scheduleBlocks, loadSegmentOrderObject());
@@ -275,8 +350,12 @@ export default function ScheduleGrid({
                   {isToday && <span className="grid-today-dot" />}
                 </div>
                 <div
-                  className="grid-col-body"
+                  className={`grid-col-body${dragOverDayIdx === dayIdx ? " drag-over" : ""}`}
                   ref={dayIdx === 0 ? firstColBodyRef : undefined}
+                  onDragOver={handleColumnDragOver}
+                  onDragEnter={(ev) => handleColumnDragEnter(ev, dayIdx)}
+                  onDragLeave={(ev) => handleColumnDragLeave(ev, dayIdx)}
+                  onDrop={(ev) => handleDropOnDay(ev, dayIdx)}
                 >
                   {HOURS.map((h, i) => (
                     <div
@@ -314,6 +393,8 @@ export default function ScheduleGrid({
                           top: `${topFrac * 100}%`,
                           height: `${Math.max(heightFrac * 100, 2)}%`,
                         }}
+                        onDragOver={handleColumnDragOver}
+                        onDrop={(ev) => handleDropOnDay(ev, dayIdx)}
                       >
                         {orderedBlocks.map((b, bi) => {
                           const isSelected = b.id === selectedBlockId;
@@ -330,6 +411,8 @@ export default function ScheduleGrid({
                                 width: `calc(${widthPct}% - 4px)`,
                                 "--block-color": b.playlistColor,
                               }}
+                              onDragOver={handleColumnDragOver}
+                              onDrop={(ev) => handleDropOnDay(ev, dayIdx)}
                               onMouseDown={(ev) => { if (ev.button === 0) handleBlockDrag(ev, b); }}
                               onClick={(ev) => handleBlockClick(ev, b.id)}
                             >

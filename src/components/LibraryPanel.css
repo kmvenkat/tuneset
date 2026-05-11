@@ -160,18 +160,21 @@
   color: var(--text-3);
 }
 
-.library-item-check {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--pl-color);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
+.library-item-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   flex-shrink: 0;
+}
+
+.library-item-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pink);
+  background: rgba(250, 45, 85, 0.12);
+  border-radius: 20px;
+  padding: 2px 6px;
+  line-height: 1.2;
 }
 
 .library-item-add {

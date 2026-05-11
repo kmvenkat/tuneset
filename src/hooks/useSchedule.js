@@ -61,6 +61,34 @@ export function useSchedule() {
     return newBlock.id;
   }, []);
 
+  /** Add a block with explicit day/times and playlist fields (e.g. drag-drop onto grid). */
+  const addBlockAt = useCallback((config) => {
+    const {
+      playlistId,
+      playlistName,
+      playlistColor,
+      dayIndex,
+      startHour,
+      startMinute,
+      endHour,
+      endMinute,
+    } = config;
+    const newBlock = {
+      id: `block-${Date.now()}`,
+      playlistId,
+      playlistName,
+      playlistColor,
+      days: [dayIndex],
+      startHour,
+      startMinute,
+      endHour,
+      endMinute,
+      shuffle: false,
+    };
+    setScheduleBlocks((prev) => [...prev, newBlock]);
+    return newBlock.id;
+  }, []);
+
   const updateBlock = useCallback((blockId, updates) => {
     setScheduleBlocks(prev =>
       prev.map(b => b.id === blockId ? { ...b, ...updates } : b)
@@ -95,5 +123,5 @@ export function useSchedule() {
     });
   }, []);
 
-  return { scheduleBlocks, addBlock, updateBlock, removeBlock, getBlocksForDay, getNowPlaying };
+  return { scheduleBlocks, addBlock, addBlockAt, updateBlock, removeBlock, getBlocksForDay, getNowPlaying };
 }

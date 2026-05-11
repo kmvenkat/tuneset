@@ -91,6 +91,12 @@
 
 .grid-col:first-child .grid-col-body { border-left: none; }
 
+.grid-col-body.drag-over {
+  background: color-mix(in srgb, var(--pink) 8%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--pink) 30%, transparent);
+  box-sizing: border-box;
+}
+
 .grid-hour-line {
   position: absolute;
   left: 0;
