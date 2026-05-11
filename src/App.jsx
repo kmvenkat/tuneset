@@ -3,7 +3,6 @@ import { useSchedule } from "./hooks/useSchedule";
 import { usePlayer } from "./hooks/usePlayer";
 import { loadGsiClient } from "./services/youtube";
 import Sidebar from "./components/Sidebar";
-import LibraryPanel from "./components/LibraryPanel";
 import ScheduleGrid from "./components/ScheduleGrid";
 import NowPlayingBar from "./components/NowPlayingBar";
 import "./App.css";
@@ -268,6 +267,9 @@ export default function App() {
     <div className="app">
       <Sidebar
         user={user}
+        playlists={playlists}
+        scheduleBlocks={schedule.scheduleBlocks}
+        onPlaylistClick={handlePlaylistClick}
         onLogout={() => {
           localStorage.removeItem("yt_access_token");
           localStorage.removeItem("yt_token_expiry");
@@ -277,11 +279,6 @@ export default function App() {
       />
       <div className="main">
         <div className="content">
-          <LibraryPanel
-            playlists={playlists}
-            scheduleBlocks={schedule.scheduleBlocks}
-            onPlaylistClick={handlePlaylistClick}
-          />
           <ScheduleGrid
             scheduleBlocks={schedule.scheduleBlocks}
             selectedBlockId={selectedBlockId}

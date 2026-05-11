@@ -1,14 +1,24 @@
+import { useMemo } from "react";
+import { PLAYLIST_ACCENT_COLORS } from "../hooks/useSchedule";
 import "./Sidebar.css";
 
-const NAV = [
-  { icon: "♪", label: "Library", active: true },
-  { icon: "↓", label: "Downloaded" },
-  { icon: "★", label: "Favorites" },
-];
-
-export default function Sidebar({ user, onLogout }) {
+export default function Sidebar({
+  user,
+  onLogout,
+  playlists = [],
+  scheduleBlocks = [],
+  onPlaylistClick,
+}) {
   const displayName = user?.name ?? "Guest";
   const avatarLetter = (user?.name?.trim?.()?.charAt(0) || "G").toUpperCase();
+
+  const blocksByPlaylist = useMemo(() => {
+    const m = new Map();
+    for (const b of scheduleBlocks) {
+      m.set(b.playlistId, (m.get(b.playlistId) ?? 0) + 1);
+    }
+    return m;
+  }, [scheduleBlocks]);
 
   return (
     <aside className="sidebar">
@@ -17,29 +27,48 @@ export default function Sidebar({ user, onLogout }) {
         <span className="sidebar-logo-name">Tuneset</span>
       </div>
 
-      <div className="sidebar-divider" />
-
-      <nav className="sidebar-nav">
-        <p className="sidebar-section-label">BROWSE</p>
-        {NAV.map(item => (
-          <button key={item.label} className={`sidebar-nav-item ${item.active ? "active" : ""}`}>
-            <span className="sidebar-nav-icon">{item.icon}</span>
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </nav>
-
-      <div className="sidebar-divider" />
-
-      <nav className="sidebar-nav">
-        <p className="sidebar-section-label">APP</p>
-        <button className="sidebar-nav-item">
-          <span className="sidebar-nav-icon">⚙</span>
-          <span>Settings</span>
-        </button>
-      </nav>
-
-      <div className="sidebar-spacer" />
+      <div className="sidebar-playlists">
+        <p className="sidebar-section-label">PLAYLISTS</p>
+        <div className="sidebar-playlist-scroll">
+          {playlists.map((pl, i) => {
+            const count = blocksByPlaylist.get(pl.id) ?? 0;
+            const accent = pl.color ?? PLAYLIST_ACCENT_COLORS[i % PLAYLIST_ACCENT_COLORS.length];
+            const coverUrl = pl.artwork ?? null;
+            return (
+              <div
+                key={pl.id}
+                role="button"
+                tabIndex={0}
+                className="sidebar-pl-row"
+                draggable
+                onClick={() => onPlaylistClick?.(pl, i)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onPlaylistClick?.(pl, i);
+                  }
+                }}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("playlistId", pl.id);
+                  e.dataTransfer.setData("playlistName", pl.name);
+                  e.dataTransfer.setData("playlistColor", accent);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+              >
+                <div className="sidebar-pl-thumb" style={{ "--pl-accent": accent }}>
+                  {coverUrl ? (
+                    <img className="sidebar-pl-thumb-img" src={coverUrl} alt="" />
+                  ) : (
+                    <span className="sidebar-pl-thumb-fallback" aria-hidden>♪</span>
+                  )}
+                </div>
+                <span className="sidebar-pl-name">{pl.name}</span>
+                {count > 0 && <span className="sidebar-pl-count">{count}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       <div className="sidebar-user">
         <div className="sidebar-avatar">
