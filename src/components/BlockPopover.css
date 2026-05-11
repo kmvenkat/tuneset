@@ -1,0 +1,182 @@
+.popover {
+  position: absolute;
+  z-index: 100;
+  width: 248px;
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3);
+  overflow: hidden;
+  animation: popoverIn 0.15s ease;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+@keyframes popoverIn {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.popover-strip {
+  height: 4px;
+  width: 100%;
+}
+
+.popover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  gap: 8px;
+}
+
+.popover-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.popover-subtitle {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+.popover-play-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: var(--btn-color);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: opacity 0.15s;
+  padding-left: 2px;
+}
+
+.popover-play-btn:hover { opacity: 0.85; }
+
+.popover-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 14px;
+}
+
+.popover-section {
+  padding: 10px 14px;
+}
+
+.popover-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+
+/* Days */
+.popover-days {
+  display: flex;
+  gap: 4px;
+}
+
+.popover-day {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: var(--border);
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.popover-day:hover { background: var(--border2); color: var(--text); }
+
+.popover-day.on {
+  background: var(--day-color);
+  color: #fff;
+}
+
+/* Row layout */
+.popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.popover-row-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.popover-row-sub {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Toggle */
+.toggle {
+  width: 42px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  background: var(--border2);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.toggle.on { background: var(--t-color); }
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  display: block;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+.toggle.on .toggle-knob { transform: translateX(18px); }
+
+/* Remove */
+.popover-remove {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 10px 14px 12px;
+  padding: 9px;
+  background: rgba(250,45,85,0.08);
+  border: 1px solid rgba(250,45,85,0.2);
+  border-radius: var(--radius-sm);
+  color: var(--pink);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+}
+
+.popover-remove:hover { background: rgba(250,45,85,0.14); }

@@ -1,0 +1,150 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --color-background-primary: var(--bg);
+  --bg:        #080808;
+  --sidebar:   #0f0f0f;
+  --surface:   #141414;
+  --card:      #1c1c1c;
+  --card-hover:#222222;
+  --border:    #262626;
+  --border2:   #303030;
+
+  --pink:      #fa2d55;
+  --pink-soft: rgba(250,45,85,0.15);
+  --blue:      #0a84ff;
+  --orange:    #ff9f0a;
+  --green:     #30d158;
+  --purple:    #bf5af2;
+  --teal:      #5ac8fa;
+  --red:       #ff453a;
+  --coral:     #ff6b6b;
+
+  --text:      #f0f0f0;
+  --text-2:    #a0a0a0;
+  --text-3:    #585858;
+
+  --sidebar-w: 216px;
+  --library-w: 300px;
+  --nowplaying-h: 76px;
+  --topbar-h:  52px;
+  --radius:    10px;
+  --radius-sm: 6px;
+
+  --font: 'DM Sans', sans-serif;
+  --mono: 'DM Mono', monospace;
+
+  color-scheme: dark;
+}
+
+html, body, #root { height: 100%; overflow: hidden; background: var(--bg); }
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* Utility */
+.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Auth */
+.auth-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  font-family: var(--font);
+}
+
+.auth-loading-text {
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.spotify-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  font-family: var(--font);
+  padding: 24px;
+}
+
+.spotify-login-card {
+  max-width: 360px;
+  text-align: center;
+}
+
+.spotify-login-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.spotify-login-sub {
+  font-size: 14px;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin-bottom: 28px;
+}
+
+.spotify-login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 28px;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: #1DB954;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+}
+
+.spotify-login-btn:hover {
+  filter: brightness(1.08);
+}
+
+.spotify-login-btn:active {
+  transform: scale(0.98);
+}
+
+.yt-login-btn {
+  background: #ff0000;
+}
