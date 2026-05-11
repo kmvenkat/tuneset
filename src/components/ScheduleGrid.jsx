@@ -312,20 +312,6 @@ export default function ScheduleGrid({
   const nowFrac = timeToFraction(Math.floor(nowHour), Math.round((nowHour % 1) * 60));
   const showNow = nowHour >= START_HOUR && nowHour <= START_HOUR + TOTAL_HOURS;
 
-  const chips = useMemo(() => {
-    const seen = new Map();
-    for (const b of scheduleBlocks) {
-      if (!seen.has(b.playlistId)) seen.set(b.playlistId, []);
-      seen.get(b.playlistId).push(b);
-    }
-    return [...seen.entries()].map(([pid, blocks]) => ({
-      playlistId: pid,
-      name: blocks[0].playlistName,
-      color: blocks[0].playlistColor,
-      blockCount: blocks.length,
-    }));
-  }, [scheduleBlocks]);
-
   return (
     <div className="schedule-panel" onClick={handleGridClick}>
       <div className="schedule-header">
@@ -461,18 +447,6 @@ export default function ScheduleGrid({
           })}
         </div>
       </div>
-
-      {chips.length > 0 && (
-        <div className="schedule-chips">
-          {chips.map(chip => (
-            <div key={chip.playlistId} className="schedule-chip" style={{ "--chip-color": chip.color }}>
-              <span className="chip-dot" />
-              <span className="chip-name">{chip.name}</span>
-              {chip.blockCount > 1 && <span className="chip-count">{chip.blockCount}</span>}
-            </div>
-          ))}
-        </div>
-      )}
 
       {selectedBlock && popoverPos && (
         <BlockPopover
