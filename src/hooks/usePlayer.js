@@ -44,7 +44,7 @@ export function usePlayer() {
           height: "1",
           width: "1",
           playerVars: {
-            autoplay: 1,
+            autoplay: 0,
             controls: 0,
             disablekb: 1,
             fs: 0,
@@ -58,8 +58,8 @@ export function usePlayer() {
             onReady: (event) => {
               console.log("YT player ready");
               playerRef.current = event.target;
-              event.target.unMute();
               event.target.setVolume(80);
+              event.target.stopVideo();
               setPlayerReady(true);
               if (pendingVideoRef.current) {
                 event.target.loadVideoById(pendingVideoRef.current);
@@ -242,10 +242,12 @@ export function usePlayer() {
     const p = playerRef.current;
     if (p?.loadVideoById) {
       p.loadVideoById(song.videoId);
+      p.unMute();
+      p.setVolume(Math.round(volume * 100));
     } else {
       pendingVideoRef.current = song.videoId;
     }
-  }, []);
+  }, [volume]);
 
   const togglePlay = useCallback(() => {
     if (!playerRef.current) return;
