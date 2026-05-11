@@ -11,11 +11,23 @@ const PLAYLIST_ACCENT_COLORS = [
   "#9BF0E1",
 ];
 
+/** `totalSeconds` is playlist wall-clock duration in seconds. */
+function formatPlaylistDuration(totalSeconds) {
+  const totalMinutes = Math.max(0, Math.round(totalSeconds / 60));
+  if (totalMinutes < 60) {
+    return totalMinutes === 1 ? "1 min" : `${totalMinutes} mins`;
+  }
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 export default function Sidebar({
   user,
   onLogout,
   playlists = [],
   scheduleBlocks = [],
+  getPlaylistMeta,
   onPlaylistClick,
 }) {
   const displayName = user?.name ?? "Guest";
@@ -43,6 +55,13 @@ export default function Sidebar({
             const count = blocksByPlaylist.get(pl.id) ?? 0;
             const accent = pl.color ?? PLAYLIST_ACCENT_COLORS[i % PLAYLIST_ACCENT_COLORS.length];
             const coverUrl = pl.artwork ?? null;
+            const n = pl.songCount ?? 0;
+            const songsLabel = `${n} song${n === 1 ? "" : "s"}`;
+            const meta = getPlaylistMeta?.(pl.id);
+            const subline =
+              meta != null
+                ? `${songsLabel} · ${formatPlaylistDuration(meta.totalDuration)}`
+                : songsLabel;
             return (
               <div
                 key={pl.id}
@@ -76,7 +95,10 @@ export default function Sidebar({
                     <span className="sidebar-pl-thumb-fallback" aria-hidden>♪</span>
                   )}
                 </div>
-                <span className="sidebar-pl-name">{pl.name}</span>
+                <div className="sidebar-pl-text">
+                  <span className="sidebar-pl-name">{pl.name}</span>
+                  <span className="sidebar-pl-meta">{subline}</span>
+                </div>
                 {count > 0 && <span className="sidebar-pl-count">{count}</span>}
                 <button
                   type="button"

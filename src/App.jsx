@@ -86,6 +86,8 @@ export default function App() {
     () => typeof localStorage !== "undefined" && !localStorage.getItem("yt_access_token")
   );
   const playlistTracksRef = useRef(new Map()); // playlistId -> songs[]
+  /** Bumped when tracks cache is populated so Sidebar can re-read durations. */
+  const [playlistTracksVersion, setPlaylistTracksVersion] = useState(0);
   const currentQueueKeyRef = useRef(null);
   /** Segment key → block ids left-to-right as reported by ScheduleGrid. */
   const blockOrderRef = useRef(new Map());
@@ -186,13 +188,35 @@ export default function App() {
       const empty = [];
       empty.totalDuration = 0;
       playlistTracksRef.current.set(playlistId, empty);
+      setPlaylistTracksVersion((v) => v + 1);
       return empty;
     }
     const songs = await getYoutubePlaylistTracks(playlistId, token);
     console.log("TRACKS_LOADED", playlistId, songs.length, "totalDuration", songs.totalDuration);
     playlistTracksRef.current.set(playlistId, songs);
+    setPlaylistTracksVersion((v) => v + 1);
     return songs;
   }, []);
+
+  const getPlaylistMeta = useCallback((playlistId) => {
+    const tracks = playlistTracksRef.current.get(playlistId);
+    return tracks ? { totalDuration: tracks.totalDuration ?? 0 } : null;
+  }, [playlistTracksVersion]);
+
+  useEffect(() => {
+    if (!playlists.length) return;
+    const timeouts = [];
+    playlists.slice(0, 50).forEach((pl, i) => {
+      timeouts.push(
+        setTimeout(() => {
+          fetchPlaylistTracks(pl.id).catch(() => {});
+        }, i * 500)
+      );
+    });
+    return () => {
+      timeouts.forEach(clearTimeout);
+    };
+  }, [playlists, fetchPlaylistTracks]);
 
   const playerPlayRef = useRef(player.play);
   useEffect(() => {
@@ -339,6 +363,7 @@ export default function App() {
         user={user}
         playlists={playlists}
         scheduleBlocks={schedule.scheduleBlocks}
+        getPlaylistMeta={getPlaylistMeta}
         onPlaylistClick={handlePlaylistClick}
         onLogout={() => {
           localStorage.removeItem("yt_access_token");
