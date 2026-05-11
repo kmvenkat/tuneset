@@ -1,6 +1,15 @@
 import { useMemo } from "react";
-import { PLAYLIST_ACCENT_COLORS } from "../hooks/useSchedule";
 import "./Sidebar.css";
+
+const PLAYLIST_ACCENT_COLORS = [
+  "#1DB954",
+  "#E8115B",
+  "#509BF5",
+  "#AF2896",
+  "#F573A0",
+  "#FFD200",
+  "#9BF0E1",
+];
 
 export default function Sidebar({
   user,
@@ -53,6 +62,10 @@ export default function Sidebar({
                   e.dataTransfer.setData("playlistId", pl.id);
                   e.dataTransfer.setData("playlistName", pl.name);
                   e.dataTransfer.setData("playlistColor", accent);
+                  e.dataTransfer.setData(
+                    "playlistSongCount",
+                    String(pl.songCount ?? 10)
+                  );
                   e.dataTransfer.effectAllowed = "copy";
                 }}
               >

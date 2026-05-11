@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSchedule } from "./hooks/useSchedule";
 import { usePlayer } from "./hooks/usePlayer";
-import { loadGsiClient } from "./services/youtube";
+import { loadGsiClient, getYoutubePlaylistTracks } from "./services/youtube";
 import Sidebar from "./components/Sidebar";
 import ScheduleGrid from "./components/ScheduleGrid";
 import NowPlayingBar from "./components/NowPlayingBar";
@@ -182,33 +182,14 @@ export default function App() {
       return playlistTracksRef.current.get(playlistId);
     }
     const token = localStorage.getItem("yt_access_token");
-    const songs = [];
-    let pageToken = null;
-    do {
-      const params = new URLSearchParams({
-        part: "snippet",
-        playlistId,
-        maxResults: "50",
-        ...(pageToken ? { pageToken } : {}),
-      });
-      const res = await fetch(
-        `https://www.googleapis.com/youtube/v3/playlistItems?${params}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const data = await res.json();
-      (data.items || [])
-        .filter(i => i.snippet?.resourceId?.kind === "youtube#video")
-        .forEach(i => songs.push({
-          id: i.snippet.resourceId.videoId,
-          videoId: i.snippet.resourceId.videoId,
-          title: i.snippet.title,
-          artist: i.snippet.videoOwnerChannelTitle ?? "",
-          artwork: i.snippet.thumbnails?.medium?.url ?? null,
-          duration: 0,
-        }));
-      pageToken = data.nextPageToken ?? null;
-    } while (pageToken);
-    console.log("TRACKS_LOADED", playlistId, songs.length);
+    if (!token) {
+      const empty = [];
+      empty.totalDuration = 0;
+      playlistTracksRef.current.set(playlistId, empty);
+      return empty;
+    }
+    const songs = await getYoutubePlaylistTracks(playlistId, token);
+    console.log("TRACKS_LOADED", playlistId, songs.length, "totalDuration", songs.totalDuration);
     playlistTracksRef.current.set(playlistId, songs);
     return songs;
   }, []);
@@ -306,10 +287,11 @@ export default function App() {
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────
-  const handlePlaylistClick = useCallback((playlist) => {
-    const blockId = schedule.addBlock(playlist);
+  const handlePlaylistClick = useCallback(async (playlist, colorIndex) => {
+    const tracks = await fetchPlaylistTracks(playlist.id);
+    const totalDurationSeconds = tracks?.totalDuration ?? 0;
+    const blockId = schedule.addBlock(playlist, colorIndex, totalDurationSeconds);
     setSelectedBlockId(blockId);
-    fetchPlaylistTracks(playlist.id);
   }, [schedule, fetchPlaylistTracks]);
 
   const handleAddBlockFromDrop = useCallback((config) => {

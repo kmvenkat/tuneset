@@ -4,6 +4,12 @@
 
 const GOOGLE_CLIENT_ID = "682592448510-2eurtje38jusp3km1cn6pfpdj4art73s.apps.googleusercontent.com";
 
+/** Optional: `videos.list` can use a browser API key instead of the OAuth token. */
+const YT_DATA_API_KEY =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_YOUTUBE_DATA_API_KEY
+    ? String(import.meta.env.VITE_YOUTUBE_DATA_API_KEY)
+    : "";
+
 const YT_TOKEN_KEY = "yt_access_token";
 const YT_EXPIRY_KEY = "yt_token_expiry";
 const YT_REFRESH_KEY = "yt_refresh_token";
@@ -173,6 +179,15 @@ export async function getYoutubePlaylists(accessToken) {
   return out;
 }
 
+/** Parse YouTube `contentDetails.duration` ISO 8601 (e.g. `PT3M45S`) to seconds. */
+export function parseISO8601Duration(duration) {
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  const hours = parseInt(match?.[1] ?? 0, 10);
+  const minutes = parseInt(match?.[2] ?? 0, 10);
+  const seconds = parseInt(match?.[3] ?? 0, 10);
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
 /** Playlist items as playable queue entries (videoId, title, artist, …). */
 export async function getYoutubePlaylistVideos(playlistId, accessToken) {
   const out = [];
@@ -203,6 +218,49 @@ export async function getYoutubePlaylistVideos(playlistId, accessToken) {
   return out;
 }
 
+/**
+ * Fetch `contentDetails.duration` for video IDs in batches of 50.
+ * Uses `VITE_YOUTUBE_DATA_API_KEY` as `key` when set; otherwise `Authorization: Bearer`.
+ */
+async function fetchVideoDurationsById(videoIds, accessToken) {
+  const map = new Map();
+  const unique = [...new Set(videoIds.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50);
+    const u = new URL("https://www.googleapis.com/youtube/v3/videos");
+    u.searchParams.set("part", "contentDetails");
+    u.searchParams.set("id", batch.join(","));
+    if (YT_DATA_API_KEY) {
+      u.searchParams.set("key", YT_DATA_API_KEY);
+    }
+    const headers = {};
+    if (!YT_DATA_API_KEY) {
+      if (!accessToken) throw new Error("YouTube access token required for videos list");
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+    const res = await fetch(u, { headers });
+    if (!res.ok) throw new Error(`YouTube videos error: ${res.status}`);
+    const data = await res.json();
+    for (const item of data.items ?? []) {
+      const iso = item.contentDetails?.duration;
+      if (item.id && iso) map.set(item.id, parseISO8601Duration(iso));
+    }
+  }
+  return map;
+}
+
 export async function getYoutubePlaylistTracks(playlistId, accessToken) {
-  return getYoutubePlaylistVideos(playlistId, accessToken);
+  const tracks = await getYoutubePlaylistVideos(playlistId, accessToken);
+  const idToSeconds = await fetchVideoDurationsById(
+    tracks.map((t) => t.videoId),
+    accessToken
+  );
+  let totalSeconds = 0;
+  for (const t of tracks) {
+    const sec = idToSeconds.get(t.videoId) ?? 0;
+    t.duration = sec;
+    totalSeconds += sec;
+  }
+  tracks.totalDuration = totalSeconds;
+  return tracks;
 }

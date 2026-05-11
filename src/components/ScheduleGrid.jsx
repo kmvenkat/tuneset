@@ -112,6 +112,10 @@ export default function ScheduleGrid({
     let playlistColor = e.dataTransfer.getData("playlistColor");
     if (!playlistColor) playlistColor = "#BF5AF2";
 
+    const songCountRaw = e.dataTransfer.getData("playlistSongCount");
+    const parsedSongCount = songCountRaw !== "" ? parseInt(songCountRaw, 10) : NaN;
+    const songCount = Number.isFinite(parsedSongCount) ? parsedSongCount : 10;
+
     const colBody = e.currentTarget.classList.contains("grid-col-body")
       ? e.currentTarget
       : e.currentTarget.closest(".grid-col-body");
@@ -122,10 +126,13 @@ export default function ScheduleGrid({
     const frac = (e.clientY - rect.top) / h;
     const { hour, minute } = fractionToHourSnap30(frac);
 
-    const startTotal = hour * 60 + minute;
-    let endTotal = startTotal + 120;
+    const durationMinutes = Math.max(
+      30,
+      Math.min(Math.round(songCount * 3.5), 1440)
+    );
     const maxEnd = 23 * 60 + 59;
-    endTotal = Math.min(endTotal, maxEnd);
+    const startTotal = hour * 60 + minute;
+    const endTotal = Math.min(startTotal + durationMinutes, maxEnd);
     const endHour = Math.floor(endTotal / 60);
     const endMinute = endTotal % 60;
 
@@ -133,6 +140,7 @@ export default function ScheduleGrid({
       playlistId,
       playlistName,
       playlistColor,
+      songCount,
       dayIndex: dayIdx,
       startHour: hour,
       startMinute: minute,

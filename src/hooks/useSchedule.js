@@ -1,29 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { getCurrentDayIndex } from "../data/mockData";
-
-/** Mon=0 … Sun=6 from JS `Date.getDay()` (Sun=0 … Sat=6). */
-export function getMondayBasedDayIndex(date = new Date()) {
-  const js = date.getDay();
-  return js === 0 ? 6 : js - 1;
-}
-
-/** Current time as fractional hours (e.g. 9:30 → 9.5) for window comparisons. */
-export function getCurrentTimeDecimalHours(date = new Date()) {
-  return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
-}
 
 const STORAGE_KEY = "tuneset_schedule_v1";
-
-/** Fallback accent when playlist has no `color` — cycle by list index. */
-export const PLAYLIST_ACCENT_COLORS = [
-  "#1DB954",
-  "#E8115B",
-  "#509BF5",
-  "#AF2896",
-  "#F573A0",
-  "#FFD200",
-  "#9BF0E1",
-];
 
 export function useSchedule() {
   const [scheduleBlocks, setScheduleBlocks] = useState(() => {
@@ -37,55 +14,63 @@ export function useSchedule() {
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(scheduleBlocks));
-    console.log("SAVING_SCHEDULE", scheduleBlocks.length);
   }, [scheduleBlocks]);
 
-  const addBlock = useCallback((playlist, colorIndex = 0) => {
-    const dayIndex = getCurrentDayIndex();
-    const playlistColor = playlist.color
-      ?? PLAYLIST_ACCENT_COLORS[colorIndex % PLAYLIST_ACCENT_COLORS.length];
+  const addBlock = useCallback((playlist, colorIndex = 0, totalDurationSeconds) => {
+    const now = new Date();
+    const jsDay = now.getDay();
+    const dayIndex = jsDay === 0 ? 6 : jsDay - 1;
+
+    const durationMinutes = (totalDurationSeconds && isFinite(totalDurationSeconds) && totalDurationSeconds > 0)
+      ? Math.max(120, Math.min(Math.round(totalDurationSeconds / 60), 1440))
+      : 120;
+
+    const startHour = 9;
+    const startMinute = 0;
+    const endTotalMinutes = startHour * 60 + startMinute + durationMinutes;
+    const endHour = Math.min(Math.floor(endTotalMinutes / 60), 23);
+    const endMinute = endTotalMinutes % 60;
+
     const newBlock = {
       id: `block-${Date.now()}`,
       playlistId: playlist.id,
       playlistName: playlist.name,
-      playlistColor,
+      playlistColor: playlist.color,
       days: [dayIndex],
-      // Default block: 9:00–11:00
-      startHour: 9,
-      startMinute: 0,
-      endHour: 11,
-      endMinute: 0,
+      startHour,
+      startMinute,
+      endHour,
+      endMinute,
       shuffle: false,
     };
     setScheduleBlocks(prev => [...prev, newBlock]);
     return newBlock.id;
   }, []);
 
-  /** Add a block with explicit day/times and playlist fields (e.g. drag-drop onto grid). */
-  const addBlockAt = useCallback((config) => {
-    const {
-      playlistId,
-      playlistName,
-      playlistColor,
-      dayIndex,
-      startHour,
-      startMinute,
-      endHour,
-      endMinute,
-    } = config;
+  const addBlockAt = useCallback((blockConfig) => {
+    const durationMinutes = (blockConfig.totalDurationSeconds && isFinite(blockConfig.totalDurationSeconds))
+      ? Math.max(120, Math.min(Math.round(blockConfig.totalDurationSeconds / 60), 1440))
+      : 120;
+
+    const endTotalMinutes = blockConfig.startHour * 60 + blockConfig.startMinute + durationMinutes;
+    const computedEndHour = Math.min(Math.floor(endTotalMinutes / 60), 23);
+    const computedEndMinute = endTotalMinutes % 60;
+
+    const providedDuration = (blockConfig.endHour * 60 + blockConfig.endMinute) - (blockConfig.startHour * 60 + blockConfig.startMinute);
+
     const newBlock = {
       id: `block-${Date.now()}`,
-      playlistId,
-      playlistName,
-      playlistColor,
-      days: [dayIndex],
-      startHour,
-      startMinute,
-      endHour,
-      endMinute,
+      playlistId: blockConfig.playlistId,
+      playlistName: blockConfig.playlistName,
+      playlistColor: blockConfig.playlistColor,
+      days: [blockConfig.dayIndex],
+      startHour: blockConfig.startHour,
+      startMinute: blockConfig.startMinute,
+      endHour: providedDuration >= 120 ? blockConfig.endHour : computedEndHour,
+      endMinute: providedDuration >= 120 ? blockConfig.endMinute : computedEndMinute,
       shuffle: false,
     };
-    setScheduleBlocks((prev) => [...prev, newBlock]);
+    setScheduleBlocks(prev => [...prev, newBlock]);
     return newBlock.id;
   }, []);
 
@@ -108,20 +93,13 @@ export function useSchedule() {
     const jsDay = now.getDay();
     const dayIndex = jsDay === 0 ? 6 : jsDay - 1;
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    let blocks = [];
-    try {
-      blocks = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    } catch {
-      blocks = [];
-    }
-
-    return blocks.filter((b) => {
-      const startMin = b.startHour * 60 + b.startMinute;
-      const endMin = b.endHour * 60 + b.endMinute;
-      return b.days.includes(dayIndex) && currentMinutes >= startMin && currentMinutes < endMin;
+    return scheduleBlocks.filter(b => {
+      if (!b.days.includes(dayIndex)) return false;
+      const start = b.startHour * 60 + b.startMinute;
+      const end = b.endHour * 60 + b.endMinute;
+      return currentMinutes >= start && currentMinutes < end;
     });
-  }, []);
+  }, [scheduleBlocks]);
 
   return { scheduleBlocks, addBlock, addBlockAt, updateBlock, removeBlock, getBlocksForDay, getNowPlaying };
 }
