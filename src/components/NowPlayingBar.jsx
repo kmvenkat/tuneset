@@ -1,13 +1,21 @@
 import { useCallback, useMemo } from "react";
 import { formatDuration, DAYS, getCurrentDayIndex } from "../data/mockData";
+import { getMusic } from "../services/appleMusic";
 import "./NowPlayingBar.css";
 
-export default function NowPlayingBar({ player, activeBlocks, playlistTracksRef }) {
+export default function NowPlayingBar({
+  player,
+  musicSource,
+  activeBlocks = [],
+  playlistTracksRef,
+  onAppleStart,
+}) {
   const {
     isPlaying, currentSong,
     progress, elapsed, volume,
     shuffle, togglePlay, handleNext, handlePrev,
     seek, setVolume, setShuffle,
+    setAppleMusicIsPlaying,
   } = player;
 
   const todayLabel = DAYS[getCurrentDayIndex()];
@@ -19,7 +27,13 @@ export default function NowPlayingBar({ player, activeBlocks, playlistTracksRef 
     const playlistTracks = playlistTracksRef.current;
     for (const block of activeBlocks) {
       const songs = playlistTracks.get(block.playlistId) ?? [];
-      if (songs.some(s => s.videoId === currentSong.videoId)) {
+      if (
+        songs.some(
+          (s) =>
+            (s.videoId && s.videoId === currentSong.videoId) ||
+            (s.appleMusicId && s.appleMusicId === currentSong.appleMusicId)
+        )
+      ) {
         return {
           currentPlaylistName: block.playlistName,
           contextDotColor: block.playlistColor,
@@ -43,6 +57,28 @@ export default function NowPlayingBar({ player, activeBlocks, playlistTracksRef 
     const frac = (e.clientX - rect.left) / rect.width;
     setVolume(Math.max(0, Math.min(1, frac)));
   }, [setVolume]);
+
+  const handleTogglePlay = useCallback(async () => {
+    if (musicSource !== "apple") {
+      togglePlay();
+      return;
+    }
+    try {
+      const music = await getMusic();
+      if (isPlaying) {
+        await music.pause();
+        setAppleMusicIsPlaying?.(false);
+      } else {
+        await music.play();
+        setAppleMusicIsPlaying?.(true);
+      }
+    } catch (err) {
+      console.error("APPLE_TOGGLE_PLAY", err);
+    }
+  }, [musicSource, isPlaying, togglePlay, setAppleMusicIsPlaying]);
+
+  const showAppleStartPlayback =
+    musicSource === "apple" && !isPlaying && activeBlocks.length > 0;
 
   return (
     <div className="np-bar">
@@ -92,14 +128,26 @@ export default function NowPlayingBar({ player, activeBlocks, playlistTracksRef 
             title="Shuffle"
           >⇄</button>
           <button className="np-btn np-btn-md" onClick={handlePrev} title="Previous">⏮</button>
-          <button
-            className="np-btn np-play"
-            onClick={togglePlay}
-            disabled={!currentSong}
-            title={isPlaying ? "Pause" : "Play"}
-          >
-            {isPlaying ? "⏸" : "▶"}
-          </button>
+          {showAppleStartPlayback ? (
+            <button
+              type="button"
+              className="np-btn np-play np-play-start"
+              onClick={() => onAppleStart?.()}
+              title="Start Playback"
+            >
+              Start
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="np-btn np-play"
+              onClick={handleTogglePlay}
+              disabled={!currentSong}
+              title={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? "⏸" : "▶"}
+            </button>
+          )}
           <button className="np-btn np-btn-md" onClick={handleNext} title="Next" disabled={!currentSong}>⏭</button>
           <button className="np-btn np-btn-sm">↻</button>
         </div>

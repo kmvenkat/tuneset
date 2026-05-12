@@ -212,9 +212,9 @@ export function usePlayer() {
     return () => { isMounted = false; };
   }, []);
 
-  // ── Progress ticker ──────────────────────────────────────────────
+  // ── Progress ticker (YouTube only; Apple uses MusicKit elsewhere) ─
   useEffect(() => {
-    if (isPlaying && playerRef.current) {
+    if (isPlaying && playerRef.current && currentSong?.videoId) {
       progressInterval.current = setInterval(() => {
         const t = playerRef.current?.getCurrentTime?.() ?? 0;
         const d = playerRef.current?.getDuration?.() ?? 1;
@@ -225,7 +225,7 @@ export function usePlayer() {
       clearInterval(progressInterval.current);
     }
     return () => clearInterval(progressInterval.current);
-  }, [isPlaying]);
+  }, [isPlaying, currentSong?.videoId]);
 
   // ── Playback controls ────────────────────────────────────────────
   const play = useCallback((songQueue, startIndex = 0) => {
@@ -311,6 +311,18 @@ export function usePlayer() {
     playerRef.current?.setVolume(Math.round(v * 100));
   }, []);
 
+  const setAppleMusicNowPlaying = useCallback((song) => {
+    setCurrentSong(song);
+    setIsPlaying(true);
+    setProgress(0);
+    setElapsed(0);
+    if (song?.duration != null) setDuration(song.duration);
+  }, []);
+
+  const setAppleMusicIsPlaying = useCallback((playing) => {
+    setIsPlaying(!!playing);
+  }, []);
+
   const buildQueueAndPlay = useCallback((activeBlocks, playlistsData) => {
     if (!activeBlocks.length || !playlistsData.length) return;
     const lists = activeBlocks.map(b => {
@@ -334,6 +346,6 @@ export function usePlayer() {
     queue, playerReady,
     play, togglePlay, handleNext, handlePrev, seek,
     setVolume: setVolumeLevel, setShuffle,
-    buildQueueAndPlay,
+    buildQueueAndPlay, setAppleMusicNowPlaying, setAppleMusicIsPlaying,
   };
 }

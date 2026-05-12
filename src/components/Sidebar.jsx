@@ -24,11 +24,13 @@ function formatPlaylistDuration(totalSeconds) {
 
 export default function Sidebar({
   user,
+  musicSource,
   onLogout,
   playlists = [],
   scheduleBlocks = [],
   getPlaylistMeta,
   onPlaylistClick,
+  onPlaylistHover,
 }) {
   const displayName = user?.name ?? "Guest";
   const avatarLetter = (user?.name?.trim?.()?.charAt(0) || "G").toUpperCase();
@@ -70,6 +72,7 @@ export default function Sidebar({
                 className="sidebar-pl-row"
                 style={{ "--pl-accent": accent }}
                 draggable
+                onMouseEnter={() => onPlaylistHover?.(pl.id)}
                 onClick={() => onPlaylistClick?.(pl, i)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -128,7 +131,9 @@ export default function Sidebar({
         </div>
         <div className="sidebar-user-info">
           <span className="sidebar-user-name">{displayName}</span>
-          <span className="sidebar-user-sub">YouTube Music</span>
+          <span className="sidebar-user-sub">
+            {musicSource === "apple" ? "Apple Music" : "YouTube Music"}
+          </span>
           <button
             type="button"
             className="sidebar-signout"
@@ -136,6 +141,7 @@ export default function Sidebar({
               localStorage.removeItem("yt_access_token");
               localStorage.removeItem("yt_token_expiry");
               localStorage.removeItem("yt_refresh_token");
+              localStorage.removeItem("apple_music_authorized");
               if (onLogout) onLogout();
               window.location.reload();
             }}

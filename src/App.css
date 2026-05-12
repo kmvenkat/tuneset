@@ -144,6 +144,21 @@ body {
   transform: scale(0.98);
 }
 
+.spotify-login-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.spotify-login-actions .spotify-login-btn {
+  width: 100%;
+}
+
 .yt-login-btn {
   background: #ff0000;
+}
+
+.apple-login-btn {
+  background: #fa243c;
 }

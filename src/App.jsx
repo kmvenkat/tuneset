@@ -2,6 +2,13 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useSchedule } from "./hooks/useSchedule";
 import { usePlayer } from "./hooks/usePlayer";
 import { loadGsiClient, getYoutubePlaylistTracks } from "./services/youtube";
+import {
+  getMusic,
+  getMyPlaylists,
+  getPlaylistTracks as getApplePlaylistTracks,
+  loadMusicKit,
+  signIn,
+} from "./services/appleMusic";
 import Sidebar from "./components/Sidebar";
 import ScheduleGrid from "./components/ScheduleGrid";
 import NowPlayingBar from "./components/NowPlayingBar";
@@ -74,23 +81,55 @@ function getActiveBlocksOrderedForScheduler() {
   return getOrderedActiveBlocksForNow(blocks, dayIndex, currentMinutes);
 }
 
+/** Blocks active for “now” from persisted schedule (avoids stale React state on first paint). */
+function getNowPlayingFromStorage() {
+  const now = new Date();
+  const jsDay = now.getDay();
+  const dayIndex = jsDay === 0 ? 6 : jsDay - 1;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  try {
+    const blocks = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return blocks.filter((b) => {
+      const start = b.startHour * 60 + b.startMinute;
+      const end = b.endHour * 60 + b.endMinute;
+      return b.days.includes(dayIndex) && currentMinutes >= start && currentMinutes < end;
+    });
+  } catch {
+    return [];
+  }
+}
+
 export default function App() {
   const schedule = useSchedule();
   const player = usePlayer();
   const [selectedBlockId, setSelectedBlockId] = useState(null);
   const [playlists, setPlaylists] = useState([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [musicSource, setMusicSource] = useState(null); // "youtube" | "apple"
   const [user, setUser] = useState(null);
   /** False until mount auth effect finishes (avoids login flash when restoring a session). */
-  const [authBootstrapped, setAuthBootstrapped] = useState(
-    () => typeof localStorage !== "undefined" && !localStorage.getItem("yt_access_token")
-  );
+  const [authBootstrapped, setAuthBootstrapped] = useState(() => {
+    if (typeof localStorage === "undefined") return true;
+    return (
+      !localStorage.getItem("yt_access_token") &&
+      !localStorage.getItem("apple_music_authorized")
+    );
+  });
+  const musicSourceRef = useRef(null);
   const playlistTracksRef = useRef(new Map()); // playlistId -> songs[]
+  const playlistHoverDebounceRef = useRef(null);
   /** Bumped when tracks cache is populated so Sidebar can re-read durations. */
   const [playlistTracksVersion, setPlaylistTracksVersion] = useState(0);
+
+  useEffect(() => {
+    musicSourceRef.current = musicSource;
+  }, [musicSource]);
   const currentQueueKeyRef = useRef(null);
   /** Segment key → block ids left-to-right as reported by ScheduleGrid. */
   const blockOrderRef = useRef(new Map());
+  const applePlaybackMusicRef = useRef(null);
+  const applePlaybackHandlerRef = useRef(null);
+  const applePlaybackItemHandlerRef = useRef(null);
 
   const loadPlaylists = useCallback(async (token) => {
     try {
@@ -117,8 +156,11 @@ export default function App() {
   // ── Auth & playlist loading ────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem("yt_access_token");
-    if (!token) {
+    const appleAuthorized = localStorage.getItem("apple_music_authorized") === "true";
+
+    if (!token && !appleAuthorized) {
       setIsAuthenticated(false);
+      setMusicSource(null);
       setAuthBootstrapped(true);
       return;
     }
@@ -127,24 +169,48 @@ export default function App() {
 
     (async () => {
       try {
-        const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const profile = await profileRes.json();
-        if (cancelled) return;
-        setUser({
-          name: profile.name,
-          email: profile.email,
-          picture: profile.picture,
-        });
-        setIsAuthenticated(true);
-        loadPlaylists(token);
+        if (appleAuthorized) {
+          const { loadMusicKit, getMyPlaylists } = await import("./services/appleMusic");
+          await loadMusicKit();
+          if (cancelled) return;
+          const pls = await getMyPlaylists();
+          if (cancelled) return;
+          setPlaylists(pls);
+          setMusicSource("apple");
+          setIsAuthenticated(true);
+          setUser({ name: "Apple Music", email: "", picture: null });
+        } else if (token) {
+          setMusicSource("youtube");
+          setIsAuthenticated(true);
+          try {
+            const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const profile = await profileRes.json();
+            if (cancelled) return;
+            setUser({
+              name: profile.name,
+              email: profile.email,
+              picture: profile.picture,
+            });
+          } catch (e) {
+            if (!cancelled) {
+              console.error("Failed to load Google profile", e);
+              setUser(null);
+            }
+          }
+          if (!cancelled) loadPlaylists(token);
+        }
       } catch (e) {
         if (!cancelled) {
-          console.error("Failed to load Google profile", e);
+          console.error("Auth bootstrap failed", e);
+          if (appleAuthorized) {
+            localStorage.removeItem("apple_music_authorized");
+          }
           setUser(null);
-          setIsAuthenticated(true);
-          loadPlaylists(token);
+          setPlaylists([]);
+          setMusicSource(null);
+          setIsAuthenticated(false);
         }
       } finally {
         if (!cancelled) setAuthBootstrapped(true);
@@ -179,9 +245,36 @@ export default function App() {
     }
   }, []);
 
+  const handleConnectAppleMusic = useCallback(async () => {
+    try {
+      console.log("APPLE_AUTH_START");
+      await loadMusicKit();
+      console.log("APPLE_MUSICKIT_LOADED", !!window.MusicKit);
+      const authorized = await signIn();
+      console.log("APPLE_AUTHORIZED", authorized);
+      localStorage.setItem("apple_music_authorized", "true");
+      setMusicSource("apple");
+      const pls = await getMyPlaylists();
+      console.log("APPLE_PLAYLISTS", pls.length);
+      setPlaylists(pls);
+      setIsAuthenticated(true);
+    } catch (e) {
+      console.error("APPLE_AUTH_ERROR", e.message, e.stack);
+    }
+  }, []);
+
   const fetchPlaylistTracks = useCallback(async (playlistId) => {
     if (playlistTracksRef.current.has(playlistId)) {
       return playlistTracksRef.current.get(playlistId);
+    }
+    if (musicSource === "apple") {
+      const songs = await getApplePlaylistTracks(playlistId);
+      const totalDuration = songs.reduce((acc, t) => acc + (t.duration ?? 0), 0);
+      songs.totalDuration = totalDuration;
+      console.log("TRACKS_LOADED", playlistId, songs.length, "totalDuration", songs.totalDuration);
+      playlistTracksRef.current.set(playlistId, songs);
+      setPlaylistTracksVersion((v) => v + 1);
+      return songs;
     }
     const token = localStorage.getItem("yt_access_token");
     if (!token) {
@@ -196,6 +289,122 @@ export default function App() {
     playlistTracksRef.current.set(playlistId, songs);
     setPlaylistTracksVersion((v) => v + 1);
     return songs;
+  }, [musicSource]);
+
+  const handleAppleStart = useCallback(async () => {
+    try {
+      const activeBlocks = schedule.getNowPlaying();
+      if (!activeBlocks.length) return;
+
+      const music = await getMusic();
+      music.autoplay = true;
+
+      // Queue library tracks via playParams-derived descriptors
+      const playlistId = activeBlocks[0].playlistId;
+      const tracksRes = await music.api.music(`/v1/me/library/playlists/${playlistId}/tracks`, { limit: 100 });
+      const tracks = tracksRes.data?.data ?? [];
+
+      if (!tracks.length) {
+        console.log("APPLE_NO_TRACKS");
+        return;
+      }
+
+      try {
+        console.log("FIRST_TRACK", JSON.stringify(tracks[0]));
+      } catch (stringifyErr) {
+        console.log("FIRST_TRACK", tracks[0], stringifyErr?.message);
+      }
+
+      const mediaItems = tracks.map((t) => ({
+        id: t.attributes.playParams.id,
+        type: t.attributes.playParams.kind,
+        isLibrary: t.attributes.playParams.isLibrary,
+        attributes: t.attributes,
+      }));
+
+      const syncNowPlayingItem = (item) => {
+        if (!item) return;
+        player.setAppleMusicNowPlaying?.({
+          title: item.attributes?.name,
+          artist: item.attributes?.artistName,
+          artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+          duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+          appleMusicId: item.id,
+        });
+        player.setAppleMusicIsPlaying?.(true);
+      };
+
+      try {
+        await music.setQueue({ items: mediaItems, startWith: 0 });
+        console.log("QUEUE_SET_SUCCESS", music.queue?.length);
+
+        music.addEventListener("nowPlayingItemDidChange", function handler(event) {
+          const item = event?.item ?? music.nowPlayingItem;
+          if (item) {
+            syncNowPlayingItem(item);
+          }
+          music.removeEventListener("nowPlayingItemDidChange", handler);
+        });
+
+        await music.play();
+        syncNowPlayingItem(music.nowPlayingItem);
+        console.log("APPLE_START_SUCCESS", music.isPlaying, music.nowPlayingItem?.attributes?.name);
+      } catch (e) {
+        console.log("QUEUE_ITEMS_FAIL", e?.message);
+        // Final fallback: try passing playParams directly
+        try {
+          await music.setQueue({
+            items: tracks.map((t) => t.attributes.playParams),
+            startWith: 0,
+          });
+          console.log("QUEUE_PLAYPARAMS_SUCCESS", music.queue?.length);
+
+          music.addEventListener("nowPlayingItemDidChange", function handler(event) {
+            const item = event?.item ?? music.nowPlayingItem;
+            if (item) {
+              syncNowPlayingItem(item);
+            }
+            music.removeEventListener("nowPlayingItemDidChange", handler);
+          });
+
+          await music.play();
+          syncNowPlayingItem(music.nowPlayingItem);
+        } catch (e2) {
+          console.log("QUEUE_PLAYPARAMS_FAIL", e2?.message);
+        }
+      }
+    } catch (e) {
+      console.error("APPLE_START_ERROR", e?.message);
+    }
+  }, [schedule.scheduleBlocks, player.setAppleMusicNowPlaying, player.setAppleMusicIsPlaying]);
+
+  const onPlaylistHover = useCallback((playlistId) => {
+    if (playlistTracksRef.current.has(playlistId)) return;
+    if (playlistHoverDebounceRef.current) {
+      clearTimeout(playlistHoverDebounceRef.current);
+    }
+    playlistHoverDebounceRef.current = setTimeout(async () => {
+      playlistHoverDebounceRef.current = null;
+      if (playlistTracksRef.current.has(playlistId)) return;
+      try {
+        const tracks = await fetchPlaylistTracks(playlistId);
+        if (tracks?.length) {
+          setPlaylists((prev) =>
+            prev.map((p) =>
+              p.id === playlistId ? { ...p, songCount: tracks.length } : p
+            )
+          );
+        }
+      } catch {}
+    }, 300);
+  }, [fetchPlaylistTracks]);
+
+  useEffect(() => {
+    return () => {
+      if (playlistHoverDebounceRef.current) {
+        clearTimeout(playlistHoverDebounceRef.current);
+      }
+    };
   }, []);
 
   const getPlaylistMeta = useCallback((playlistId) => {
@@ -205,15 +414,28 @@ export default function App() {
 
   useEffect(() => {
     if (!playlists.length) return;
+    let cancelled = false;
     const timeouts = [];
-    playlists.slice(0, 50).forEach((pl, i) => {
+    playlists.slice(0, 3).forEach((pl, i) => {
       timeouts.push(
-        setTimeout(() => {
-          fetchPlaylistTracks(pl.id).catch(() => {});
-        }, i * 500)
+        setTimeout(async () => {
+          if (cancelled) return;
+          try {
+            const tracks = await fetchPlaylistTracks(pl.id);
+            if (cancelled) return;
+            if (tracks?.length) {
+              setPlaylists((prev) =>
+                prev.map((p) =>
+                  p.id === pl.id ? { ...p, songCount: tracks.length } : p
+                )
+              );
+            }
+          } catch {}
+        }, i * 1000)
       );
     });
     return () => {
+      cancelled = true;
       timeouts.forEach(clearTimeout);
     };
   }, [playlists, fetchPlaylistTracks]);
@@ -222,6 +444,11 @@ export default function App() {
   useEffect(() => {
     playerPlayRef.current = player.play;
   }, [player.play]);
+
+  const playerSetAppleMusicNowPlayingRef = useRef(player.setAppleMusicNowPlaying);
+  useEffect(() => {
+    playerSetAppleMusicNowPlayingRef.current = player.setAppleMusicNowPlaying;
+  }, [player.setAppleMusicNowPlaying]);
 
   const fetchTracksRef = useRef(fetchPlaylistTracks);
   useEffect(() => {
@@ -234,7 +461,10 @@ export default function App() {
 
   // ── Scheduler ─────────────────────────────────────────────────────
   const runSchedulerTick = useCallback(async () => {
-    if (!localStorage.getItem("yt_access_token")) return;
+    const src = musicSourceRef.current;
+    if (src === "youtube" && !localStorage.getItem("yt_access_token")) return;
+    if (src === "apple" && localStorage.getItem("apple_music_authorized") !== "true") return;
+    if (!src) return;
 
     const activeBlocks = getActiveBlocksOrderedForScheduler();
     if (activeBlocks.length === 0) return;
@@ -300,14 +530,98 @@ export default function App() {
     if (queueKey !== currentQueueKeyRef.current) {
       currentQueueKeyRef.current = queueKey;
       console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
-      playerPlayRef.current(interleaved, 0);
+      if (musicSourceRef.current === "apple") {
+        const queueItems = interleaved
+          .filter((t) => t.appleMusicId)
+          .map((t) => t.appleMusicId);
+        if (queueItems.length === 0) return;
+        const music = await getMusic();
+        console.log("APPLE_MUSIC_INSTANCE", music === window.MusicKit?.getInstance());
+
+        console.log("APPLE_QUEUE_DATA", JSON.stringify({
+          songCount: queueItems.length,
+          firstSong: queueItems[0],
+          type: typeof queueItems[0],
+        }));
+
+        try {
+          await music.setQueue({
+            musicItems: queueItems.map((id) => ({ id, type: "library-songs" })),
+            startWith: 0,
+          });
+        } catch (e) {
+          console.log("APPLE_SETQUEUE_MUSICITEM_FAILED", e?.message);
+          // Fallback to playlist URL
+          const playlistId = sortedActive[0]?.playlistId;
+          if (playlistId) {
+            await music.setQueue({
+              url: `https://music.apple.com/library/playlist/${playlistId}`,
+            });
+          }
+        }
+        music.autoplay = true;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        try {
+          await music.play();
+        } catch (e) {
+          console.log("APPLE_PLAY_DEFERRED", e?.message);
+        }
+
+        // Attach listeners to same instance
+        music.removeEventListener("playbackStateDidChange", applePlaybackHandlerRef.current);
+        music.removeEventListener("nowPlayingItemDidChange", applePlaybackItemHandlerRef.current);
+
+        const stateHandler = (event) => {
+          console.log("APPLE_STATE_CHANGE", event?.state, music.nowPlayingItem?.attributes?.name);
+          const item = music.nowPlayingItem;
+          if (item) playerSetAppleMusicNowPlayingRef.current?.({
+            title: item.attributes?.name,
+            artist: item.attributes?.artistName,
+            artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+            duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+            appleMusicId: item.id,
+          });
+        };
+
+        const itemHandler = (event) => {
+          console.log("APPLE_NOW_PLAYING_CHANGE", event?.item?.attributes?.name);
+          const item = event?.item ?? music.nowPlayingItem;
+          if (item) playerSetAppleMusicNowPlayingRef.current?.({
+            title: item.attributes?.name,
+            artist: item.attributes?.artistName,
+            artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+            duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+            appleMusicId: item.id,
+          });
+        };
+
+        music.addEventListener("playbackStateDidChange", stateHandler);
+        music.addEventListener("nowPlayingItemDidChange", itemHandler);
+        applePlaybackHandlerRef.current = stateHandler;
+        applePlaybackItemHandlerRef.current = itemHandler;
+        applePlaybackMusicRef.current = music;
+      } else {
+        playerPlayRef.current(interleaved, 0);
+      }
     }
   }, []);
 
   useEffect(() => {
     runSchedulerTick();
     const id = setInterval(runSchedulerTick, 10000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      const m = applePlaybackMusicRef.current;
+      if (m) {
+        const h = applePlaybackHandlerRef.current;
+        const ih = applePlaybackItemHandlerRef.current;
+        if (h) m.removeEventListener("playbackStateDidChange", h);
+        if (ih) m.removeEventListener("nowPlayingItemDidChange", ih);
+        applePlaybackMusicRef.current = null;
+        applePlaybackHandlerRef.current = null;
+        applePlaybackItemHandlerRef.current = null;
+      }
+    };
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────
@@ -342,15 +656,24 @@ export default function App() {
         <div className="spotify-login-card">
           <h1 className="spotify-login-title">Tuneset</h1>
           <p className="spotify-login-sub">
-            Connect YouTube Music to load your playlists and schedule playback.
+            Connect YouTube Music or Apple Music to load your playlists and schedule playback.
           </p>
-          <button
-            type="button"
-            className="spotify-login-btn yt-login-btn"
-            onClick={handleConnectYouTubeMusic}
-          >
-            Connect YouTube Music
-          </button>
+          <div className="spotify-login-actions">
+            <button
+              type="button"
+              className="spotify-login-btn yt-login-btn"
+              onClick={handleConnectYouTubeMusic}
+            >
+              Connect YouTube Music
+            </button>
+            <button
+              type="button"
+              className="spotify-login-btn apple-login-btn"
+              onClick={handleConnectAppleMusic}
+            >
+              Connect Apple Music
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -360,14 +683,17 @@ export default function App() {
     <div className="app">
       <Sidebar
         user={user}
+        musicSource={musicSource}
         playlists={playlists}
         scheduleBlocks={schedule.scheduleBlocks}
         getPlaylistMeta={getPlaylistMeta}
         onPlaylistClick={handlePlaylistClick}
+        onPlaylistHover={onPlaylistHover}
         onLogout={() => {
           localStorage.removeItem("yt_access_token");
           localStorage.removeItem("yt_token_expiry");
           localStorage.removeItem("yt_refresh_token");
+          localStorage.removeItem("apple_music_authorized");
           window.location.reload();
         }}
       />
@@ -387,8 +713,10 @@ export default function App() {
         </div>
         <NowPlayingBar
           player={player}
-          activeBlocks={getActiveBlocksOrderedForScheduler()}
+          musicSource={musicSource}
+          activeBlocks={getNowPlayingFromStorage()}
           playlistTracksRef={playlistTracksRef}
+          onAppleStart={handleAppleStart}
         />
       </div>
     </div>
