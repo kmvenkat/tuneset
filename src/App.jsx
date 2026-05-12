@@ -298,38 +298,71 @@ export default function App() {
       const activeBlocks = schedule.getNowPlaying();
       if (!activeBlocks.length) return;
 
+      const sortedActive = sortActiveBlocksByGridVisualOrder(activeBlocks, blockOrderRef);
+
       const music = await getMusic();
       music.autoplay = true;
 
-      // Queue library tracks via playParams-derived descriptors
-      const playlistId = activeBlocks[0].playlistId;
-      const tracksRes = await music.api.music(`/v1/me/library/playlists/${playlistId}/tracks`, { limit: 100 });
-      const tracks = tracksRes.data?.data ?? [];
+      const rawTrackArrays = await Promise.all(
+        sortedActive.map(async (b) => {
+          const res = await music.api.music(
+            `/v1/me/library/playlists/${b.playlistId}/tracks`,
+            { limit: 100 }
+          );
+          let rows = (res.data?.data ?? []).map((t) => ({
+            ...t,
+            playlistId: b.playlistId,
+            playlistName: b.playlistName,
+            playlistColor: b.playlistColor,
+          }));
+          if (b.shuffle) {
+            rows = [...rows];
+            for (let si = rows.length - 1; si > 0; si--) {
+              const j = Math.floor(Math.random() * (si + 1));
+              [rows[si], rows[j]] = [rows[j], rows[si]];
+            }
+          }
+          return rows;
+        })
+      );
 
-      if (!tracks.length) {
+      console.log(
+        "APPLE_RAW_TRACKS",
+        rawTrackArrays.map((arr, i) => ({
+          playlist: sortedActive[i].playlistName,
+          count: arr.length,
+        }))
+      );
+
+      const interleaved = [];
+      const maxLen = Math.max(...rawTrackArrays.map((a) => a.length), 0);
+      for (let i = 0; i < maxLen; i++) {
+        for (let p = 0; p < rawTrackArrays.length; p++) {
+          if (i < rawTrackArrays[p].length) {
+            interleaved.push(rawTrackArrays[p][i]);
+          }
+        }
+      }
+
+      if (!interleaved.length) {
         console.log("APPLE_NO_TRACKS");
         return;
       }
 
       try {
-        console.log("FIRST_TRACK", JSON.stringify(tracks[0]));
+        console.log("FIRST_TRACK", JSON.stringify(interleaved[0]));
       } catch (stringifyErr) {
-        console.log("FIRST_TRACK", tracks[0], stringifyErr?.message);
+        console.log("FIRST_TRACK", interleaved[0], stringifyErr?.message);
       }
 
-      const mediaItems = tracks.map((t) => ({
-        id: t.attributes.playParams.id,
-        type: t.attributes.playParams.kind,
-        isLibrary: t.attributes.playParams.isLibrary,
+      const mediaItems = interleaved.map((t) => ({
+        id: t.attributes?.playParams?.id ?? t.id,
+        type: "song",
+        isLibrary: true,
         attributes: t.attributes,
       }));
 
-      appleInterleavedQueueRef.current = tracks.map((t) => ({
-        ...t,
-        playlistId: activeBlocks[0].playlistId,
-        playlistName: activeBlocks[0].playlistName,
-        playlistColor: activeBlocks[0].playlistColor,
-      }));
+      appleInterleavedQueueRef.current = interleaved;
 
       const syncNowPlayingItem = (item) => {
         if (!item) return;
@@ -347,11 +380,8 @@ export default function App() {
         await music.setQueue({ items: mediaItems, startWith: 0 });
         console.log("QUEUE_SET_SUCCESS", music.queue?.length);
 
-        const shuffleOn = activeBlocks[0]?.shuffle ?? false;
-        music.shuffleMode = shuffleOn
-          ? window.MusicKit.PlayerShuffleMode.songs
-          : window.MusicKit.PlayerShuffleMode.off;
-        console.log("APPLE_SHUFFLE", shuffleOn, music.shuffleMode);
+        music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
+        console.log("APPLE_SHUFFLE", "off (interleaved order)");
 
         music.addEventListener("nowPlayingItemDidChange", function handler(event) {
           const item = event?.item ?? music.nowPlayingItem;
@@ -363,22 +393,21 @@ export default function App() {
 
         await music.play();
         syncNowPlayingItem(music.nowPlayingItem);
+        const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
+        currentQueueKeyRef.current = queueKey;
         console.log("APPLE_START_SUCCESS", music.isPlaying, music.nowPlayingItem?.attributes?.name);
       } catch (e) {
         console.log("QUEUE_ITEMS_FAIL", e?.message);
         // Final fallback: try passing playParams directly
         try {
           await music.setQueue({
-            items: tracks.map((t) => t.attributes.playParams),
+            items: interleaved.map((t) => t.attributes?.playParams).filter(Boolean),
             startWith: 0,
           });
           console.log("QUEUE_PLAYPARAMS_SUCCESS", music.queue?.length);
 
-          const shuffleOn = activeBlocks[0]?.shuffle ?? false;
-          music.shuffleMode = shuffleOn
-            ? window.MusicKit.PlayerShuffleMode.songs
-            : window.MusicKit.PlayerShuffleMode.off;
-          console.log("APPLE_SHUFFLE", shuffleOn, music.shuffleMode);
+          music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
+          console.log("APPLE_SHUFFLE", "off (interleaved order)");
 
           music.addEventListener("nowPlayingItemDidChange", function handler(event) {
             const item = event?.item ?? music.nowPlayingItem;
@@ -390,6 +419,8 @@ export default function App() {
 
           await music.play();
           syncNowPlayingItem(music.nowPlayingItem);
+          const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
+          currentQueueKeyRef.current = queueKey;
         } catch (e2) {
           console.log("QUEUE_PLAYPARAMS_FAIL", e2?.message);
         }
@@ -620,12 +651,18 @@ export default function App() {
 
     if (interleaved.length === 0) return;
 
-    const queueKey = sortedActive.map(b => b.id).join(",");
-    if (queueKey !== currentQueueKeyRef.current) {
-      currentQueueKeyRef.current = queueKey;
-      console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
+    const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
+    if (queueKey === currentQueueKeyRef.current) {
       if (musicSourceRef.current === "apple") {
-        appleInterleavedQueueRef.current = interleaved;
+        console.log("APPLE_ALREADY_PLAYING_SKIP");
+      }
+      return;
+    }
+    currentQueueKeyRef.current = queueKey;
+
+    console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
+    if (musicSourceRef.current === "apple") {
+      appleInterleavedQueueRef.current = interleaved;
         const queueItems = interleaved
           .filter((t) => t.appleMusicId)
           .map((t) => t.appleMusicId);
@@ -695,9 +732,8 @@ export default function App() {
         applePlaybackHandlerRef.current = stateHandler;
         applePlaybackItemHandlerRef.current = itemHandler;
         applePlaybackMusicRef.current = music;
-      } else {
-        playerPlayRef.current(interleaved, 0);
-      }
+    } else {
+      playerPlayRef.current(interleaved, 0);
     }
   }, []);
 
