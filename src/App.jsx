@@ -127,6 +127,8 @@ export default function App() {
   const currentQueueKeyRef = useRef(null);
   /** Segment key → block ids left-to-right as reported by ScheduleGrid. */
   const blockOrderRef = useRef(new Map());
+  /** Last built Apple interleaved queue (for shuffle rebuilds during playback). */
+  const appleInterleavedQueueRef = useRef([]);
   const applePlaybackMusicRef = useRef(null);
   const applePlaybackHandlerRef = useRef(null);
   const applePlaybackItemHandlerRef = useRef(null);
@@ -322,6 +324,13 @@ export default function App() {
         attributes: t.attributes,
       }));
 
+      appleInterleavedQueueRef.current = tracks.map((t) => ({
+        ...t,
+        playlistId: activeBlocks[0].playlistId,
+        playlistName: activeBlocks[0].playlistName,
+        playlistColor: activeBlocks[0].playlistColor,
+      }));
+
       const syncNowPlayingItem = (item) => {
         if (!item) return;
         player.setAppleMusicNowPlaying?.({
@@ -471,6 +480,79 @@ export default function App() {
     blockOrderRef.current.set(segmentKey, [...blockIds]);
   }, []);
 
+  const handleBlockShuffleToggle = useCallback(async (blockId, shuffleOn) => {
+    if (musicSourceRef.current !== "apple") return;
+    const music = await getMusic();
+    if (!music.isPlaying) return;
+
+    const currentItem = music.nowPlayingItem;
+    const currentId = currentItem?.attributes?.playParams?.id ?? currentItem?.id;
+    const queue = appleInterleavedQueueRef.current;
+    if (!queue?.length) return;
+
+    const currentIdx = queue.findIndex(
+      (t) =>
+        t.attributes?.playParams?.id === currentId || t.id === currentId
+    );
+    const remaining = currentIdx >= 0 ? queue.slice(currentIdx + 1) : queue;
+
+    const byPlaylist = new Map();
+    for (const track of remaining) {
+      if (!byPlaylist.has(track.playlistId)) byPlaylist.set(track.playlistId, []);
+      byPlaylist.get(track.playlistId).push(track);
+    }
+
+    const toggledBlock = schedule.scheduleBlocks.find((b) => b.id === blockId);
+    if (toggledBlock && byPlaylist.has(toggledBlock.playlistId)) {
+      const tracks = byPlaylist.get(toggledBlock.playlistId);
+      if (shuffleOn) {
+        for (let i = tracks.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+        }
+      } else {
+        const cached = playlistTracksRef.current.get(toggledBlock.playlistId);
+        if (cached) {
+          const cachedIds = cached.map((t) => t.appleMusicId ?? t.id);
+          tracks.sort((a, b) => {
+            const ai = cachedIds.indexOf(a.attributes?.playParams?.id ?? a.id);
+            const bi = cachedIds.indexOf(b.attributes?.playParams?.id ?? b.id);
+            return ai - bi;
+          });
+        }
+      }
+    }
+
+    const sortedActive = sortActiveBlocksByGridVisualOrder(
+      getActiveBlocksOrderedForScheduler(),
+      blockOrderRef
+    );
+    const playlistIds = sortedActive.map((b) => b.playlistId);
+    const arrays = playlistIds.map((id) => byPlaylist.get(id) ?? []);
+    const newQueue = [];
+    const maxLen = Math.max(...arrays.map((a) => a.length), 0);
+    for (let i = 0; i < maxLen; i++) {
+      for (const arr of arrays) {
+        if (i < arr.length) newQueue.push(arr[i]);
+      }
+    }
+
+    if (!newQueue.length) return;
+
+    appleInterleavedQueueRef.current = newQueue;
+    const mediaItems = newQueue.map((t) => ({
+      id: t.attributes?.playParams?.id ?? t.id,
+      type: "song",
+      isLibrary: true,
+      attributes: t.attributes,
+    }));
+
+    await music.setQueue({ items: mediaItems, startWith: 0 });
+    music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
+    await music.play();
+    console.log("APPLE_SHUFFLE_REBUILT", newQueue.length, "tracks");
+  }, [schedule.scheduleBlocks]);
+
   // ── Scheduler ─────────────────────────────────────────────────────
   const runSchedulerTick = useCallback(async () => {
     const src = musicSourceRef.current;
@@ -543,6 +625,7 @@ export default function App() {
       currentQueueKeyRef.current = queueKey;
       console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
       if (musicSourceRef.current === "apple") {
+        appleInterleavedQueueRef.current = interleaved;
         const queueItems = interleaved
           .filter((t) => t.appleMusicId)
           .map((t) => t.appleMusicId);
@@ -717,6 +800,7 @@ export default function App() {
             onBlockClick={handleBlockClick}
             onGridClick={handleGridClick}
             onUpdateBlock={schedule.updateBlock}
+            onShuffleToggle={handleBlockShuffleToggle}
             onRemoveBlock={schedule.removeBlock}
             onPlay={player.play}
             onAddBlock={handleAddBlockFromDrop}

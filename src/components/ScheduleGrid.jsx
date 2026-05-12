@@ -59,7 +59,7 @@ function moveIdToIndex(ids, id, toIdx) {
 
 export default function ScheduleGrid({
   scheduleBlocks, selectedBlockId, onBlockClick, onGridClick,
-  onUpdateBlock, onRemoveBlock, onPlay, onAddBlock, onBlocksReordered,
+  onUpdateBlock, onShuffleToggle, onRemoveBlock, onPlay, onAddBlock, onBlocksReordered,
 }) {
   const gridRef = useRef(null);
   const firstColBodyRef = useRef(null);
@@ -475,6 +475,7 @@ export default function ScheduleGrid({
           block={selectedBlock}
           position={popoverPos}
           onUpdate={onUpdateBlock}
+          onShuffleToggle={onShuffleToggle}
           onRemove={(id) => { onRemoveBlock(id); setPopoverPos(null); }}
           onPlay={onPlay}
           onClick={(e) => e.stopPropagation()}

@@ -2,7 +2,9 @@ import { useCallback } from "react";
 import { DAYS, formatTime } from "../data/mockData";
 import "./BlockPopover.css";
 
-export default function BlockPopover({ block, position, onUpdate, onRemove, onPlay, onClick }) {
+export default function BlockPopover({
+  block, position, onUpdate, onShuffleToggle, onRemove, onPlay, onClick,
+}) {
 
   const toggleDay = useCallback((dayIdx) => {
     const current = block.days;
@@ -13,8 +15,10 @@ export default function BlockPopover({ block, position, onUpdate, onRemove, onPl
   }, [block, onUpdate]);
 
   const toggleShuffle = useCallback(() => {
-    onUpdate(block.id, { shuffle: !block.shuffle });
-  }, [block, onUpdate]);
+    const newValue = !block.shuffle;
+    onUpdate(block.id, { shuffle: newValue });
+    onShuffleToggle?.(block.id, newValue);
+  }, [block, onUpdate, onShuffleToggle]);
 
   const formatDayLabel = () => {
     const d = block.days;
