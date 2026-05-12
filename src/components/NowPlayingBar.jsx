@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { formatDuration, DAYS, getCurrentDayIndex } from "../data/mockData";
 import { getMusic } from "../services/appleMusic";
 import "./NowPlayingBar.css";
@@ -13,9 +13,13 @@ export default function NowPlayingBar({
   const {
     isPlaying, currentSong,
     progress, elapsed, volume,
-    shuffle, togglePlay, handleNext, handlePrev,
+    shuffle, togglePlay,
+    handleNext: playerHandleNext,
+    handlePrev: playerHandlePrev,
     seek, setVolume, setShuffle,
     setAppleMusicIsPlaying,
+    setAppleMusicNowPlaying,
+    syncApplePlaybackProgress,
   } = player;
 
   const todayLabel = DAYS[getCurrentDayIndex()];
@@ -46,17 +50,47 @@ export default function NowPlayingBar({
     };
   }, [currentSong, activeBlocks, playlistTracksRef]);
 
-  const handleScrubberClick = useCallback((e) => {
+  const handleScrubberClick = useCallback(async (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const frac = (e.clientX - rect.left) / rect.width;
-    seek(Math.max(0, Math.min(1, frac)));
-  }, [seek]);
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (musicSource === "apple") {
+      const music = await getMusic();
+      await music.seekToTime?.(frac * (currentSong?.duration ?? 0));
+      syncApplePlaybackProgress?.(music);
+      return;
+    }
+    seek(frac);
+  }, [musicSource, currentSong?.duration, seek, syncApplePlaybackProgress]);
 
-  const handleVolumeClick = useCallback((e) => {
+  const handleVolumeClick = useCallback(async (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const frac = (e.clientX - rect.left) / rect.width;
-    setVolume(Math.max(0, Math.min(1, frac)));
-  }, [setVolume]);
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (musicSource === "apple") {
+      const music = await getMusic();
+      music.volume = frac;
+      setVolume(frac);
+      return;
+    }
+    setVolume(frac);
+  }, [musicSource, setVolume]);
+
+  useEffect(() => {
+    if (musicSource !== "apple" || !isPlaying) return undefined;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      try {
+        const music = await getMusic();
+        if (cancelled) return;
+        syncApplePlaybackProgress?.(music);
+      } catch {
+        /* ignore */
+      }
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [musicSource, isPlaying, syncApplePlaybackProgress]);
 
   const handleTogglePlay = useCallback(async () => {
     if (musicSource !== "apple") {
@@ -76,6 +110,44 @@ export default function NowPlayingBar({
       console.error("APPLE_TOGGLE_PLAY", err);
     }
   }, [musicSource, isPlaying, togglePlay, setAppleMusicIsPlaying]);
+
+  const handleNext = useCallback(async () => {
+    if (musicSource === "apple") {
+      const music = await getMusic();
+      await music.skipToNextItem();
+      const item = music.nowPlayingItem;
+      if (item) {
+        setAppleMusicNowPlaying?.({
+          title: item.attributes?.name,
+          artist: item.attributes?.artistName,
+          artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+          duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+          appleMusicId: item.id,
+        });
+      }
+    } else {
+      playerHandleNext();
+    }
+  }, [musicSource, playerHandleNext, setAppleMusicNowPlaying]);
+
+  const handlePrev = useCallback(async () => {
+    if (musicSource === "apple") {
+      const music = await getMusic();
+      await music.skipToPreviousItem();
+      const item = music.nowPlayingItem;
+      if (item) {
+        setAppleMusicNowPlaying?.({
+          title: item.attributes?.name,
+          artist: item.attributes?.artistName,
+          artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+          duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+          appleMusicId: item.id,
+        });
+      }
+    } else {
+      playerHandlePrev();
+    }
+  }, [musicSource, playerHandlePrev, setAppleMusicNowPlaying]);
 
   const showAppleStartPlayback =
     musicSource === "apple" && !isPlaying && activeBlocks.length > 0;

@@ -323,6 +323,16 @@ export function usePlayer() {
     setIsPlaying(!!playing);
   }, []);
 
+  /** Update elapsed/progress from MusicKit instance (does not touch YouTube). */
+  const syncApplePlaybackProgress = useCallback((music) => {
+    const t = music?.currentPlaybackTime ?? 0;
+    const d = music?.currentPlaybackDuration ?? 0;
+    if (d > 0) {
+      setElapsed(Math.floor(t));
+      setProgress(t / d);
+    }
+  }, []);
+
   const buildQueueAndPlay = useCallback((activeBlocks, playlistsData) => {
     if (!activeBlocks.length || !playlistsData.length) return;
     const lists = activeBlocks.map(b => {
@@ -347,5 +357,6 @@ export function usePlayer() {
     play, togglePlay, handleNext, handlePrev, seek,
     setVolume: setVolumeLevel, setShuffle,
     buildQueueAndPlay, setAppleMusicNowPlaying, setAppleMusicIsPlaying,
+    syncApplePlaybackProgress,
   };
 }
