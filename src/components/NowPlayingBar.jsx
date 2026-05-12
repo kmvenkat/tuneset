@@ -92,6 +92,19 @@ export default function NowPlayingBar({
     };
   }, [musicSource, isPlaying, syncApplePlaybackProgress]);
 
+  const handleShuffleClick = useCallback(async () => {
+    if (musicSource === "apple") {
+      const music = await getMusic();
+      const currentlyShuffled = music.shuffleMode === window.MusicKit?.PlayerShuffleMode?.songs;
+      music.shuffleMode = currentlyShuffled
+        ? window.MusicKit.PlayerShuffleMode.off
+        : window.MusicKit.PlayerShuffleMode.songs;
+      setShuffle(!currentlyShuffled);
+      return;
+    }
+    setShuffle((s) => !s);
+  }, [musicSource, setShuffle]);
+
   const handleTogglePlay = useCallback(async () => {
     if (musicSource !== "apple") {
       togglePlay();
@@ -196,7 +209,7 @@ export default function NowPlayingBar({
         <div className="np-controls">
           <button
             className={`np-btn np-btn-sm ${shuffle ? "active" : ""}`}
-            onClick={() => setShuffle(s => !s)}
+            onClick={handleShuffleClick}
             title="Shuffle"
           >⇄</button>
           <button className="np-btn np-btn-md" onClick={handlePrev} title="Previous">⏮</button>

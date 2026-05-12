@@ -338,6 +338,12 @@ export default function App() {
         await music.setQueue({ items: mediaItems, startWith: 0 });
         console.log("QUEUE_SET_SUCCESS", music.queue?.length);
 
+        const shuffleOn = activeBlocks[0]?.shuffle ?? false;
+        music.shuffleMode = shuffleOn
+          ? window.MusicKit.PlayerShuffleMode.songs
+          : window.MusicKit.PlayerShuffleMode.off;
+        console.log("APPLE_SHUFFLE", shuffleOn, music.shuffleMode);
+
         music.addEventListener("nowPlayingItemDidChange", function handler(event) {
           const item = event?.item ?? music.nowPlayingItem;
           if (item) {
@@ -358,6 +364,12 @@ export default function App() {
             startWith: 0,
           });
           console.log("QUEUE_PLAYPARAMS_SUCCESS", music.queue?.length);
+
+          const shuffleOn = activeBlocks[0]?.shuffle ?? false;
+          music.shuffleMode = shuffleOn
+            ? window.MusicKit.PlayerShuffleMode.songs
+            : window.MusicKit.PlayerShuffleMode.off;
+          console.log("APPLE_SHUFFLE", shuffleOn, music.shuffleMode);
 
           music.addEventListener("nowPlayingItemDidChange", function handler(event) {
             const item = event?.item ?? music.nowPlayingItem;
