@@ -714,7 +714,14 @@ export default function App() {
           const currentQueue = appleInterleavedQueueRef.current ?? [];
           const remainingFromRef = currentQueue.slice(currentPosition + 1);
 
-          const combinedTracks = [...newRawFlat, ...remainingFromRef];
+          const arrays = [newRawFlat, remainingFromRef];
+          const combinedTracks = [];
+          const maxLen = Math.max(...arrays.map((a) => a.length));
+          for (let i = 0; i < maxLen; i++) {
+            for (const arr of arrays) {
+              if (i < arr.length) combinedTracks.push(arr[i]);
+            }
+          }
           appleInterleavedQueueRef.current = combinedTracks;
 
           const mediaItems = combinedTracks.map((t) => ({
