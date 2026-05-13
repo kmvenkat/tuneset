@@ -18,6 +18,7 @@ export default function QueueDrawer({
   onClose,
   queue = [],
   currentIndex = 0,
+  onSkipTo,
 }) {
   const currentRowRef = useRef(null);
 
@@ -53,6 +54,7 @@ export default function QueueDrawer({
                 key={trackKey(track, index)}
                 ref={index === currentIndex ? currentRowRef : null}
                 className={`queue-drawer-row ${isCurrent ? "queue-drawer-row--current" : ""}`}
+                onClick={() => onSkipTo?.(index)}
               >
                 <span
                   className="queue-drawer-dot"

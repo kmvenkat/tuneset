@@ -137,6 +137,24 @@ export default function App() {
   const applePlaybackHandlerRef = useRef(null);
   const applePlaybackItemHandlerRef = useRef(null);
 
+  const syncAppleNowPlayingItemToPlayer = useCallback((music) => {
+    const item = music?.nowPlayingItem;
+    if (!item) return;
+    player.setAppleMusicNowPlaying?.({
+      title: item.attributes?.name,
+      artist: item.attributes?.artistName,
+      artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+      duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+      appleMusicId: item.id,
+    });
+    player.setAppleMusicIsPlaying?.(true);
+    player.syncApplePlaybackProgress?.(music);
+  }, [
+    player.setAppleMusicNowPlaying,
+    player.setAppleMusicIsPlaying,
+    player.syncApplePlaybackProgress,
+  ]);
+
   const wireApplePlaybackSync = useCallback((music) => {
     const prev = applePlaybackMusicRef.current;
     if (prev && prev !== music) {
@@ -158,19 +176,12 @@ export default function App() {
         artist: item?.attributes?.artistName,
       }));
       if (!item) return;
-      player.setAppleMusicNowPlaying?.({
-        title: item.attributes?.name,
-        artist: item.attributes?.artistName,
-        artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
-        duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
-        appleMusicId: item.id,
-      });
-      player.setAppleMusicIsPlaying?.(true);
+      syncAppleNowPlayingItemToPlayer(music);
     };
     applePlaybackMusicRef.current = music;
     applePlaybackItemHandlerRef.current = onNowPlayingItemDidChange;
     music.addEventListener("nowPlayingItemDidChange", onNowPlayingItemDidChange);
-  }, [player.setAppleMusicNowPlaying, player.setAppleMusicIsPlaying]);
+  }, [syncAppleNowPlayingItemToPlayer]);
 
   const loadPlaylists = useCallback(async (token) => {
     try {
@@ -947,6 +958,26 @@ export default function App() {
     return i >= 0 ? i : 0;
   }, [musicSource, player.currentSong, player.currentSongIndex, drawerQueue]);
 
+  const handleSkipTo = useCallback(
+    async (index) => {
+      if (typeof index !== "number" || index < 0) return;
+      const src = musicSourceRef.current;
+      if (src === "youtube") {
+        player.playAt(index);
+        return;
+      }
+      if (src !== "apple") return;
+      try {
+        const music = await getMusic();
+        await music.changeToMediaAtIndex(index);
+        syncAppleNowPlayingItemToPlayer(music);
+      } catch (e) {
+        console.log("SKIP_TO_FAIL", e?.message);
+      }
+    },
+    [player.playAt, syncAppleNowPlayingItemToPlayer]
+  );
+
   if (!authBootstrapped) {
     return (
       <div className="auth-loading">
@@ -1034,6 +1065,7 @@ export default function App() {
         onClose={() => setIsQueueOpen(false)}
         queue={drawerQueue}
         currentIndex={queueDrawerCurrentIndex}
+        onSkipTo={handleSkipTo}
       />
     </div>
   );

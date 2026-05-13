@@ -79,14 +79,15 @@
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   transition: background 0.12s;
+  cursor: pointer;
 }
 
 .queue-drawer-row--current {
   background: color-mix(in srgb, var(--pink) 10%, transparent);
 }
 
-.queue-drawer-row:hover:not(.queue-drawer-row--current) {
-  background: var(--card-hover);
+.queue-drawer-row:hover {
+  background: var(--card);
 }
 
 .queue-drawer-dot {

@@ -249,6 +249,25 @@ export function usePlayer() {
     }
   }, [volume]);
 
+  const playAt = useCallback((index) => {
+    const q = queueRef.current;
+    if (!q.length || index < 0 || index >= q.length) return;
+    const song = q[index];
+    indexRef.current = index;
+    setCurrentSongIndex(index);
+    setCurrentSong(song);
+    setElapsed(0);
+    setProgress(0);
+    const p = playerRef.current;
+    if (p?.loadVideoById) {
+      p.loadVideoById(song.videoId);
+      p.unMute();
+      p.setVolume(Math.round(volume * 100));
+    } else {
+      pendingVideoRef.current = song.videoId;
+    }
+  }, [volume]);
+
   const togglePlay = useCallback(() => {
     if (!playerRef.current) return;
     const state = playerRef.current.getPlayerState?.();
@@ -354,7 +373,7 @@ export function usePlayer() {
     isPlaying, currentSong, currentSongIndex,
     progress, elapsed, duration, volume, shuffle,
     queue, playerReady,
-    play, togglePlay, handleNext, handlePrev, seek,
+    play, playAt, togglePlay, handleNext, handlePrev, seek,
     setVolume: setVolumeLevel, setShuffle,
     buildQueueAndPlay, setAppleMusicNowPlaying, setAppleMusicIsPlaying,
     syncApplePlaybackProgress,
