@@ -1,7 +1,7 @@
 .popover {
   position: absolute;
   z-index: 100;
-  width: 248px;
+  width: 280px;
   background: var(--card);
   border: 1px solid var(--border2);
   border-radius: var(--radius);
@@ -30,6 +30,11 @@
   gap: 8px;
 }
 
+.popover-header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
 .popover-title {
   font-size: 13px;
   font-weight: 700;
@@ -41,6 +46,74 @@
   font-size: 11px;
   color: var(--text-3);
   font-family: var(--mono);
+}
+
+.bp-time-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+  margin-top: 8px;
+  margin-bottom: 6px;
+}
+
+.bp-time-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bp-time-label {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.bp-time-selects {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.bp-time-select {
+  background: var(--card);
+  border: 0.5px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+.bp-time-select:focus {
+  outline: none;
+}
+
+.bp-time-input-num {
+  background: var(--card);
+  border: 0.5px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: var(--font);
+  width: 48px;
+  text-align: center;
+  box-sizing: border-box;
+  cursor: text;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.bp-time-input-num::-webkit-outer-spin-button,
+.bp-time-input-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.bp-time-input-num:focus {
+  outline: none;
 }
 
 .popover-play-btn {

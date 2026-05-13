@@ -658,81 +658,91 @@ export default function App() {
       }
       return;
     }
-    currentQueueKeyRef.current = queueKey;
 
-    console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
     if (musicSourceRef.current === "apple") {
-      appleInterleavedQueueRef.current = interleaved;
-        const queueItems = interleaved
-          .filter((t) => t.appleMusicId)
-          .map((t) => t.appleMusicId);
-        if (queueItems.length === 0) return;
-        const music = await getMusic();
-        console.log("APPLE_MUSIC_INSTANCE", music === window.MusicKit?.getInstance());
+      const music = await getMusic();
+      const isPlaying = music.isPlaying;
+      const prevKey = currentQueueKeyRef.current;
 
-        console.log("APPLE_QUEUE_DATA", JSON.stringify({
-          songCount: queueItems.length,
-          firstSong: queueItems[0],
-          type: typeof queueItems[0],
-        }));
+      if (isPlaying) {
+        console.log("APPLE_QUEUE_APPEND", sortedActive.map((b) => b.playlistName));
+
+        const newPlIds = sortedActive
+          .map((b) => b.playlistId)
+          .filter((id) => !(prevKey ?? "").split(",").filter(Boolean).includes(id));
+
+        if (!newPlIds.length) {
+          console.log("APPLE_APPEND_SKIP", "no new playlist tracks");
+          return;
+        }
 
         try {
-          await music.setQueue({
-            musicItems: queueItems.map((id) => ({ id, type: "library-songs" })),
-            startWith: 0,
-          });
-        } catch (e) {
-          console.log("APPLE_SETQUEUE_MUSICITEM_FAILED", e?.message);
-          // Fallback to playlist URL
-          const playlistId = sortedActive[0]?.playlistId;
-          if (playlistId) {
-            await music.setQueue({
-              url: `https://music.apple.com/library/playlist/${playlistId}`,
-            });
+          const rawNewTracks = await Promise.all(
+            sortedActive
+              .filter((b) => newPlIds.includes(b.playlistId))
+              .map(async (b) => {
+                const res = await music.api.music(
+                  `/v1/me/library/playlists/${b.playlistId}/tracks`,
+                  { limit: 100 }
+                );
+                return (res.data?.data ?? []).map((t) => ({
+                  ...t,
+                  playlistId: b.playlistId,
+                  playlistName: b.playlistName,
+                  playlistColor: b.playlistColor,
+                }));
+              })
+          );
+
+          console.log("RAW_NEW_TRACKS", JSON.stringify({
+            newPlIds,
+            counts: rawNewTracks.map((arr, i) => ({
+              playlist: sortedActive.filter((b) => newPlIds.includes(b.playlistId))[i]?.playlistName,
+              count: arr.length,
+              firstId: arr[0]?.id,
+            })),
+          }));
+
+          const newRawFlat = rawNewTracks.flat();
+
+          if (!newRawFlat.length) {
+            console.log("APPLE_APPEND_SKIP", "no raw tracks from new playlists");
+            return;
           }
-        }
-        music.autoplay = true;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        try {
+
+          const currentPosition = music.queue.position ?? 0;
+          const currentQueue = appleInterleavedQueueRef.current ?? [];
+          const remainingFromRef = currentQueue.slice(currentPosition + 1);
+
+          const combinedTracks = [...newRawFlat, ...remainingFromRef];
+          appleInterleavedQueueRef.current = combinedTracks;
+
+          const mediaItems = combinedTracks.map((t) => ({
+            id: t.attributes?.playParams?.id ?? t.id,
+            type: "song",
+            isLibrary: true,
+            attributes: t.attributes,
+          })).filter((d) => d.id);
+
+          if (!mediaItems.length) return;
+
+          currentQueueKeyRef.current = queueKey;
+
+          await music.setQueue({ items: mediaItems, startWith: 1 });
+          music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
           await music.play();
+          console.log("APPLE_TRANSITION_SUCCESS", mediaItems.length, "tracks");
         } catch (e) {
-          console.log("APPLE_PLAY_DEFERRED", e?.message);
+          console.log("APPLE_TRANSITION_FAIL", e?.message);
         }
-
-        // Attach listeners to same instance
-        music.removeEventListener("playbackStateDidChange", applePlaybackHandlerRef.current);
-        music.removeEventListener("nowPlayingItemDidChange", applePlaybackItemHandlerRef.current);
-
-        const stateHandler = (event) => {
-          console.log("APPLE_STATE_CHANGE", event?.state, music.nowPlayingItem?.attributes?.name);
-          const item = music.nowPlayingItem;
-          if (item) playerSetAppleMusicNowPlayingRef.current?.({
-            title: item.attributes?.name,
-            artist: item.attributes?.artistName,
-            artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
-            duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
-            appleMusicId: item.id,
-          });
-        };
-
-        const itemHandler = (event) => {
-          console.log("APPLE_NOW_PLAYING_CHANGE", event?.item?.attributes?.name);
-          const item = event?.item ?? music.nowPlayingItem;
-          if (item) playerSetAppleMusicNowPlayingRef.current?.({
-            title: item.attributes?.name,
-            artist: item.attributes?.artistName,
-            artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
-            duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
-            appleMusicId: item.id,
-          });
-        };
-
-        music.addEventListener("playbackStateDidChange", stateHandler);
-        music.addEventListener("nowPlayingItemDidChange", itemHandler);
-        applePlaybackHandlerRef.current = stateHandler;
-        applePlaybackItemHandlerRef.current = itemHandler;
-        applePlaybackMusicRef.current = music;
+      } else {
+        currentQueueKeyRef.current = queueKey;
+        console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
+        appleInterleavedQueueRef.current = interleaved;
+      }
     } else {
+      currentQueueKeyRef.current = queueKey;
+      console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
       playerPlayRef.current(interleaved, 0);
     }
   }, []);

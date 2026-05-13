@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { formatDuration, DAYS, getCurrentDayIndex } from "../data/mockData";
+import { formatDuration } from "../data/mockData";
 import { getMusic } from "../services/appleMusic";
 import "./NowPlayingBar.css";
 
@@ -21,8 +21,6 @@ export default function NowPlayingBar({
     setAppleMusicNowPlaying,
     syncApplePlaybackProgress,
   } = player;
-
-  const todayLabel = DAYS[getCurrentDayIndex()];
 
   const { currentPlaylistName, contextDotColor } = useMemo(() => {
     if (!currentSong || !activeBlocks.length) {
@@ -186,7 +184,7 @@ export default function NowPlayingBar({
         {activeBlocks.length > 0 && currentPlaylistName != null && (
           <div className="np-context">
             <span className="np-context-dot" style={{ background: contextDotColor }} />
-            <span className="np-context-text">{currentPlaylistName} · {todayLabel}</span>
+            <span className="np-context-text">{currentPlaylistName}</span>
           </div>
         )}
       </div>
