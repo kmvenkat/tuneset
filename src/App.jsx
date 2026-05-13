@@ -124,7 +124,9 @@ export default function App() {
   useEffect(() => {
     musicSourceRef.current = musicSource;
   }, [musicSource]);
-  const currentQueueKeyRef = useRef(null);
+  const currentQueueKeyRef = useRef("");
+  /** Playlist IDs we believe are present in the current MusicKit queue. */
+  const queuedPlaylistsRef = useRef(new Set());
   /** Segment key → block ids left-to-right as reported by ScheduleGrid. */
   const blockOrderRef = useRef(new Map());
   /** Last built Apple interleaved queue (for shuffle rebuilds during playback). */
@@ -330,10 +332,32 @@ export default function App() {
 
   const handleAppleStart = useCallback(async () => {
     try {
-      const activeBlocks = schedule.getNowPlaying();
+      const activeBlocks = (() => {
+        const now = new Date();
+        const jsDay = now.getDay();
+        const dayIdx = jsDay === 0 ? 6 : jsDay - 1;
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        try {
+          const blocks = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+          return blocks.filter((b) => {
+            const start = b.startHour * 60 + b.startMinute;
+            const end = b.endHour * 60 + b.endMinute;
+            return b.days.includes(dayIdx) && currentMinutes >= start && currentMinutes < end;
+          });
+        } catch {
+          return [];
+        }
+      })();
+      console.log("RAW_ACTIVE_BLOCKS", Date.now(), JSON.stringify(
+        activeBlocks.map((b) => ({ name: b.playlistName, id: b.playlistId }))
+      ));
       if (!activeBlocks.length) return;
 
       const sortedActive = sortActiveBlocksByGridVisualOrder(activeBlocks, blockOrderRef);
+
+      console.log("APPLE_START_ACTIVE_BLOCKS", JSON.stringify(
+        sortedActive.map((b) => ({ name: b.playlistName, id: b.playlistId }))
+      ));
 
       const music = await getMusic();
       music.autoplay = true;
@@ -423,6 +447,7 @@ export default function App() {
         syncNowPlayingItem(music.nowPlayingItem);
         const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
         currentQueueKeyRef.current = queueKey;
+        queuedPlaylistsRef.current = new Set(sortedActive.map((b) => b.playlistId));
         console.log("APPLE_START_SUCCESS", music.isPlaying, music.nowPlayingItem?.attributes?.name);
       } catch (e) {
         console.log("QUEUE_ITEMS_FAIL", e?.message);
@@ -441,6 +466,7 @@ export default function App() {
           syncNowPlayingItem(music.nowPlayingItem);
           const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
           currentQueueKeyRef.current = queueKey;
+          queuedPlaylistsRef.current = new Set(sortedActive.map((b) => b.playlistId));
         } catch (e2) {
           console.log("QUEUE_PLAYPARAMS_FAIL", e2?.message);
         }
@@ -448,7 +474,7 @@ export default function App() {
     } catch (e) {
       console.error("APPLE_START_ERROR", e?.message);
     }
-  }, [schedule.scheduleBlocks, player.setAppleMusicNowPlaying, player.setAppleMusicIsPlaying, wireApplePlaybackSync]);
+  }, [player.setAppleMusicNowPlaying, player.setAppleMusicIsPlaying, wireApplePlaybackSync]);
 
   const onPlaylistHover = useCallback((playlistId) => {
     if (playlistTracksRef.current.has(playlistId)) return;
@@ -596,6 +622,7 @@ export default function App() {
     await music.setQueue({ items: mediaItems, startWith: 0 });
     music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
     await music.play();
+    queuedPlaylistsRef.current = new Set(sortedActive.map((b) => b.playlistId));
     console.log("APPLE_SHUFFLE_REBUILT", newQueue.length, "tracks");
   }, [schedule.scheduleBlocks]);
 
@@ -667,110 +694,113 @@ export default function App() {
     if (interleaved.length === 0) return;
 
     const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
-    if (queueKey === currentQueueKeyRef.current) {
-      if (musicSourceRef.current === "apple") {
-        console.log("APPLE_ALREADY_PLAYING_SKIP");
-      }
-      return;
-    }
-
-    if (musicSourceRef.current === "apple") {
-      const music = await getMusic();
-      const isPlaying = music.isPlaying;
-      const prevKey = currentQueueKeyRef.current;
-
-      if (isPlaying) {
-        console.log("APPLE_QUEUE_APPEND", sortedActive.map((b) => b.playlistName));
-
-        const newPlIds = sortedActive
-          .map((b) => b.playlistId)
-          .filter((id) => !(prevKey ?? "").split(",").filter(Boolean).includes(id));
-
-        if (!newPlIds.length) {
-          console.log("APPLE_APPEND_SKIP", "no new playlist tracks");
-          return;
-        }
-
-        try {
-          const rawNewTracks = await Promise.all(
-            sortedActive
-              .filter((b) => newPlIds.includes(b.playlistId))
-              .map(async (b) => {
-                const res = await music.api.music(
-                  `/v1/me/library/playlists/${b.playlistId}/tracks`,
-                  { limit: 100 }
-                );
-                return (res.data?.data ?? []).map((t) => ({
-                  ...t,
-                  playlistId: b.playlistId,
-                  playlistName: b.playlistName,
-                  playlistColor: b.playlistColor,
-                }));
-              })
-          );
-
-          console.log("RAW_NEW_TRACKS", JSON.stringify({
-            newPlIds,
-            counts: rawNewTracks.map((arr, i) => ({
-              playlist: sortedActive.filter((b) => newPlIds.includes(b.playlistId))[i]?.playlistName,
-              count: arr.length,
-              firstId: arr[0]?.id,
-            })),
-          }));
-
-          const newRawFlat = rawNewTracks.flat();
-
-          if (!newRawFlat.length) {
-            console.log("APPLE_APPEND_SKIP", "no raw tracks from new playlists");
-            return;
-          }
-
-          const currentPosition = music.queue.position ?? 0;
-          const currentQueue = appleInterleavedQueueRef.current ?? [];
-          const remainingFromRef = currentQueue.slice(currentPosition + 1);
-
-          const currentId = music.nowPlayingItem?.attributes?.playParams?.id ?? music.nowPlayingItem?.id;
-          const filteredRemaining = remainingFromRef.filter((t) =>
-            (t.attributes?.playParams?.id ?? t.id) !== currentId
-          );
-
-          const arrays = [newRawFlat, filteredRemaining];
-          const combinedTracks = [];
-          const maxLen = Math.max(...arrays.map((a) => a.length));
-          for (let i = 0; i < maxLen; i++) {
-            for (const arr of arrays) {
-              if (i < arr.length) combinedTracks.push(arr[i]);
-            }
-          }
-          appleInterleavedQueueRef.current = combinedTracks;
-
-          const mediaItems = combinedTracks.map((t) => ({
-            id: t.attributes?.playParams?.id ?? t.id,
-            type: "song",
-            isLibrary: true,
-            attributes: t.attributes,
-          })).filter((d) => d.id);
-
-          if (!mediaItems.length) return;
-
-          currentQueueKeyRef.current = queueKey;
-
-          await music.setQueue({ items: mediaItems, startWith: 0 });
-          music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
-          await music.play();
-          console.log("APPLE_TRANSITION_SUCCESS", mediaItems.length, "tracks");
-        } catch (e) {
-          console.log("APPLE_TRANSITION_FAIL", e?.message);
-        }
-      } else {
-        currentQueueKeyRef.current = queueKey;
-        console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
-        appleInterleavedQueueRef.current = interleaved;
-      }
-    } else {
+    if (musicSourceRef.current !== "apple") {
+      if (queueKey === currentQueueKeyRef.current) return;
       currentQueueKeyRef.current = queueKey;
       console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
       playerPlayRef.current(interleaved, 0);
+      return;
+    }
+
+    const music = await getMusic();
+
+    const scheduledIds = new Set(sortedActive.map((b) => b.playlistId));
+    const missingFromQueue = sortedActive.filter(
+      (b) => scheduledIds.has(b.playlistId) && !queuedPlaylistsRef.current.has(b.playlistId)
+    );
+    console.log("MISSING_FROM_QUEUE", JSON.stringify(missingFromQueue.map((b) => b.playlistName)));
+
+    if (music.isPlaying) {
+      if (missingFromQueue.length === 0) {
+        console.log("APPLE_ALREADY_PLAYING_SKIP");
+        return;
+      }
+      // Seamless transition — add missing playlists to queue
+      console.log("APPLE_QUEUE_APPEND", sortedActive.map((b) => b.playlistName));
+
+      try {
+        const rawNewTracks = await Promise.all(
+          missingFromQueue.map(async (b) => {
+            const res = await music.api.music(
+              `/v1/me/library/playlists/${b.playlistId}/tracks`,
+              { limit: 100 }
+            );
+            return (res.data?.data ?? []).map((t) => ({
+              ...t,
+              playlistId: b.playlistId,
+              playlistName: b.playlistName,
+              playlistColor: b.playlistColor,
+            }));
+          })
+        );
+
+        console.log("RAW_NEW_TRACKS", JSON.stringify({
+          missingPlaylistIds: missingFromQueue.map((b) => b.playlistId),
+          counts: rawNewTracks.map((arr, i) => ({
+            playlist: missingFromQueue[i]?.playlistName,
+            count: arr.length,
+            firstId: arr[0]?.id,
+          })),
+        }));
+
+        if (!rawNewTracks.some((arr) => arr.length > 0)) {
+          console.log("APPLE_APPEND_SKIP", "no raw tracks from new playlists");
+          return;
+        }
+
+        const currentPosition = music.queue.position ?? 0;
+        const currentQueue = appleInterleavedQueueRef.current ?? [];
+        const remainingFromRef = currentQueue.slice(currentPosition + 1);
+
+        const currentId = music.nowPlayingItem?.attributes?.playParams?.id ?? music.nowPlayingItem?.id;
+        const filteredRemaining = remainingFromRef.filter((t) =>
+          (t.attributes?.playParams?.id ?? t.id) !== currentId
+        );
+
+        const allArrays = sortedActive.map((b) => {
+          if (missingFromQueue.some((m) => m.playlistId === b.playlistId)) {
+            const idx = missingFromQueue.findIndex((m) => m.playlistId === b.playlistId);
+            return rawNewTracks[idx] ?? [];
+          }
+          return filteredRemaining.filter((t) => t.playlistId === b.playlistId);
+        });
+
+        const combinedTracks = [];
+        const maxLen = Math.max(...allArrays.map((a) => a.length), 0);
+        for (let i = 0; i < maxLen; i++) {
+          for (const arr of allArrays) {
+            if (i < arr.length) combinedTracks.push(arr[i]);
+          }
+        }
+        appleInterleavedQueueRef.current = combinedTracks;
+
+        const mediaItems = combinedTracks.map((t) => ({
+          id: t.attributes?.playParams?.id ?? t.id,
+          type: "song",
+          isLibrary: true,
+          attributes: t.attributes,
+        })).filter((d) => d.id);
+
+        if (!mediaItems.length) return;
+
+        currentQueueKeyRef.current = queueKey;
+
+        await music.setQueue({ items: mediaItems, startWith: 0 });
+        music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
+        await music.play();
+        queuedPlaylistsRef.current = new Set(sortedActive.map((b) => b.playlistId));
+        console.log("APPLE_TRANSITION_SUCCESS", mediaItems.length, "tracks");
+      } catch (e) {
+        console.log("APPLE_TRANSITION_FAIL", e?.message);
+      }
+    } else {
+      if (missingFromQueue.length === 0 && queuedPlaylistsRef.current.size > 0) {
+        return;
+      }
+      // Fresh start
+      console.log("STARTING_PLAYBACK", queueKey, interleaved.length, "tracks");
+      currentQueueKeyRef.current = queueKey;
+      appleInterleavedQueueRef.current = interleaved;
     }
   }, []);
 
@@ -793,11 +823,77 @@ export default function App() {
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────
-  const handlePlaylistClick = useCallback((playlist) => {
+  const resetSchedulerQueueKey = useCallback(() => {
+    currentQueueKeyRef.current = "";
+    queuedPlaylistsRef.current = new Set();
+  }, []);
+
+  const handleUpdateBlock = useCallback((blockId, updates) => {
+    schedule.updateBlock(blockId, updates);
+    if (musicSourceRef.current === "apple") {
+      queuedPlaylistsRef.current = new Set();
+      currentQueueKeyRef.current = "";
+    }
+  }, [schedule]);
+
+  const handlePlaylistClick = useCallback(async (playlist) => {
+    console.log("PLAYLIST_CLICK", playlist.name, playlist.id);
+    currentQueueKeyRef.current = ""; // reset immediately so next tick rebuilds
+    queuedPlaylistsRef.current = new Set();
     const blockId = schedule.addBlock(playlist);
     setSelectedBlockId(blockId);
     fetchPlaylistTracks(playlist.id).catch(() => {});
-  }, [schedule, fetchPlaylistTracks]);
+
+    if (musicSourceRef.current === "apple") {
+      try {
+        const music = await getMusic();
+        if (music.isPlaying || (music.queue?.length ?? 0) > 0) {
+          const waitForStableState = () => new Promise((resolve) => {
+            const check = () => {
+              const state = music.playbackState;
+              if (state === 2 || state === 3) {
+                resolve();
+              } else {
+                setTimeout(check, 300);
+              }
+            };
+            check();
+          });
+          const waitForBlockInSchedule = (playlistId) => new Promise((resolve) => {
+            const check = () => {
+              let blocks = [];
+              try {
+                blocks = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+              } catch {
+                blocks = [];
+              }
+              const now = new Date();
+              const jsDay = now.getDay();
+              const dayIdx = jsDay === 0 ? 6 : jsDay - 1;
+              const currentMinutes = now.getHours() * 60 + now.getMinutes();
+              const active = blocks.filter((b) => {
+                const start = b.startHour * 60 + b.startMinute;
+                const end = b.endHour * 60 + b.endMinute;
+                return b.days.includes(dayIdx) && currentMinutes >= start && currentMinutes < end;
+              });
+              if (active.some((b) => b.playlistId === playlistId)) {
+                console.log("BLOCK_FOUND_IN_STORAGE", playlistId, active.map((b) => b.playlistName));
+                resolve();
+              } else {
+                setTimeout(check, 100);
+              }
+            };
+            check();
+          });
+          await waitForStableState();
+          await waitForBlockInSchedule(playlist.id);
+          handleAppleStart();
+        }
+      } catch (e) {
+        console.log("APPLE_REBUILD_ON_ADD_FAIL", e?.message);
+      }
+    }
+  }, [schedule, fetchPlaylistTracks, handleAppleStart]);
 
   const handleAddBlockFromDrop = useCallback((config) => {
     schedule.addBlockAt(config);
@@ -872,11 +968,12 @@ export default function App() {
             selectedBlockId={selectedBlockId}
             onBlockClick={handleBlockClick}
             onGridClick={handleGridClick}
-            onUpdateBlock={schedule.updateBlock}
+            onUpdateBlock={handleUpdateBlock}
             onShuffleToggle={handleBlockShuffleToggle}
             onRemoveBlock={schedule.removeBlock}
             onPlay={player.play}
             onAddBlock={handleAddBlockFromDrop}
+            onBlockAdded={resetSchedulerQueueKey}
             onBlocksReordered={handleBlocksReordered}
           />
         </div>
@@ -886,6 +983,7 @@ export default function App() {
           activeBlocks={getNowPlayingFromStorage()}
           playlistTracksRef={playlistTracksRef}
           onAppleStart={handleAppleStart}
+          onUpdateBlock={handleUpdateBlock}
         />
       </div>
     </div>

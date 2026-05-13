@@ -59,7 +59,7 @@ function moveIdToIndex(ids, id, toIdx) {
 
 export default function ScheduleGrid({
   scheduleBlocks, selectedBlockId, onBlockClick, onGridClick,
-  onUpdateBlock, onShuffleToggle, onRemoveBlock, onPlay, onAddBlock, onBlocksReordered,
+  onUpdateBlock, onShuffleToggle, onRemoveBlock, onPlay, onAddBlock, onBlockAdded, onBlocksReordered,
 }) {
   const gridRef = useRef(null);
   const firstColBodyRef = useRef(null);
@@ -136,6 +136,7 @@ export default function ScheduleGrid({
     const endHour = Math.floor(endTotal / 60);
     const endMinute = endTotal % 60;
 
+    onBlockAdded?.();
     onAddBlock({
       playlistId,
       playlistName,
@@ -147,7 +148,7 @@ export default function ScheduleGrid({
       endHour,
       endMinute,
     });
-  }, [onAddBlock]);
+  }, [onAddBlock, onBlockAdded]);
 
   useEffect(() => {
     const merged = mergeSegmentOrderObject(scheduleBlocks, loadSegmentOrderObject());

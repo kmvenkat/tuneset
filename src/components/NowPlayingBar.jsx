@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { formatDuration } from "../data/mockData";
 import { getMusic } from "../services/appleMusic";
 import "./NowPlayingBar.css";
@@ -9,6 +9,7 @@ export default function NowPlayingBar({
   activeBlocks = [],
   playlistTracksRef,
   onAppleStart,
+  onUpdateBlock: _onUpdateBlock,
 }) {
   const {
     isPlaying, currentSong,
@@ -21,6 +22,8 @@ export default function NowPlayingBar({
     setAppleMusicNowPlaying,
     syncApplePlaybackProgress,
   } = player;
+
+  const lastNextCallRef = useRef(0);
 
   const { currentPlaylistName, contextDotColor } = useMemo(() => {
     if (!currentSong || !activeBlocks.length) {
@@ -110,18 +113,29 @@ export default function NowPlayingBar({
   }, [musicSource, isPlaying, togglePlay, setAppleMusicIsPlaying]);
 
   const handleNext = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastNextCallRef.current < 500) return;
+    lastNextCallRef.current = now;
+
     if (musicSource === "apple") {
-      const music = await getMusic();
-      await music.skipToNextItem();
-      const item = music.nowPlayingItem;
-      if (item) {
-        setAppleMusicNowPlaying?.({
-          title: item.attributes?.name,
-          artist: item.attributes?.artistName,
-          artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
-          duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
-          appleMusicId: item.id,
-        });
+      try {
+        const music = await getMusic();
+        if (music.playbackState === 1 || music.playbackState === 8 || music.playbackState === 9) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+        await music.skipToNextItem();
+        const item = music.nowPlayingItem;
+        if (item) {
+          setAppleMusicNowPlaying?.({
+            title: item.attributes?.name,
+            artist: item.attributes?.artistName,
+            artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+            duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+            appleMusicId: item.id,
+          });
+        }
+      } catch (e) {
+        console.log("SKIP_NEXT_ERROR", e?.message);
       }
     } else {
       playerHandleNext();
