@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import "./QueueDrawer.css";
 
 function trackKey(t, i) {
@@ -18,6 +19,14 @@ export default function QueueDrawer({
   queue = [],
   currentIndex = 0,
 }) {
+  const currentRowRef = useRef(null);
+
+  useEffect(() => {
+    if (currentRowRef.current) {
+      currentRowRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [currentIndex]);
+
   return (
     <div
       className={`queue-drawer ${isOpen ? "queue-drawer--open" : ""}`}
@@ -42,6 +51,7 @@ export default function QueueDrawer({
             return (
               <div
                 key={trackKey(track, index)}
+                ref={index === currentIndex ? currentRowRef : null}
                 className={`queue-drawer-row ${isCurrent ? "queue-drawer-row--current" : ""}`}
               >
                 <span

@@ -3,8 +3,9 @@
   position: fixed;
   top: 0;
   right: 0;
+  bottom: auto;
   width: 320px;
-  height: 100%;
+  height: calc(100vh - 80px);
   z-index: 200;
   pointer-events: none;
   transition: transform 0.25s ease;
