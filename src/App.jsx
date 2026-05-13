@@ -133,6 +133,41 @@ export default function App() {
   const applePlaybackHandlerRef = useRef(null);
   const applePlaybackItemHandlerRef = useRef(null);
 
+  const wireApplePlaybackSync = useCallback((music) => {
+    const prev = applePlaybackMusicRef.current;
+    if (prev && prev !== music) {
+      const h = applePlaybackHandlerRef.current;
+      const ih = applePlaybackItemHandlerRef.current;
+      if (h) prev.removeEventListener("playbackStateDidChange", h);
+      if (ih) prev.removeEventListener("nowPlayingItemDidChange", ih);
+      applePlaybackHandlerRef.current = null;
+      applePlaybackItemHandlerRef.current = null;
+    }
+    if (applePlaybackMusicRef.current === music && applePlaybackItemHandlerRef.current) {
+      return;
+    }
+    const onNowPlayingItemDidChange = (event) => {
+      const item = event?.item ?? music.nowPlayingItem;
+      console.log("NOW_PLAYING_ITEM_CHANGE", JSON.stringify({
+        itemId: item?.id,
+        title: item?.attributes?.name,
+        artist: item?.attributes?.artistName,
+      }));
+      if (!item) return;
+      player.setAppleMusicNowPlaying?.({
+        title: item.attributes?.name,
+        artist: item.attributes?.artistName,
+        artwork: item.attributes?.artwork?.url?.replace("{w}", "80").replace("{h}", "80"),
+        duration: Math.floor((item.attributes?.durationInMillis ?? 0) / 1000),
+        appleMusicId: item.id,
+      });
+      player.setAppleMusicIsPlaying?.(true);
+    };
+    applePlaybackMusicRef.current = music;
+    applePlaybackItemHandlerRef.current = onNowPlayingItemDidChange;
+    music.addEventListener("nowPlayingItemDidChange", onNowPlayingItemDidChange);
+  }, [player.setAppleMusicNowPlaying, player.setAppleMusicIsPlaying]);
+
   const loadPlaylists = useCallback(async (token) => {
     try {
       const res = await fetch(
@@ -302,6 +337,7 @@ export default function App() {
 
       const music = await getMusic();
       music.autoplay = true;
+      wireApplePlaybackSync(music);
 
       const rawTrackArrays = await Promise.all(
         sortedActive.map(async (b) => {
@@ -383,14 +419,6 @@ export default function App() {
         music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
         console.log("APPLE_SHUFFLE", "off (interleaved order)");
 
-        music.addEventListener("nowPlayingItemDidChange", function handler(event) {
-          const item = event?.item ?? music.nowPlayingItem;
-          if (item) {
-            syncNowPlayingItem(item);
-          }
-          music.removeEventListener("nowPlayingItemDidChange", handler);
-        });
-
         await music.play();
         syncNowPlayingItem(music.nowPlayingItem);
         const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
@@ -409,14 +437,6 @@ export default function App() {
           music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
           console.log("APPLE_SHUFFLE", "off (interleaved order)");
 
-          music.addEventListener("nowPlayingItemDidChange", function handler(event) {
-            const item = event?.item ?? music.nowPlayingItem;
-            if (item) {
-              syncNowPlayingItem(item);
-            }
-            music.removeEventListener("nowPlayingItemDidChange", handler);
-          });
-
           await music.play();
           syncNowPlayingItem(music.nowPlayingItem);
           const queueKey = sortedActive.map((b) => b.playlistId).sort().join(",");
@@ -428,7 +448,7 @@ export default function App() {
     } catch (e) {
       console.error("APPLE_START_ERROR", e?.message);
     }
-  }, [schedule.scheduleBlocks, player.setAppleMusicNowPlaying, player.setAppleMusicIsPlaying]);
+  }, [schedule.scheduleBlocks, player.setAppleMusicNowPlaying, player.setAppleMusicIsPlaying, wireApplePlaybackSync]);
 
   const onPlaylistHover = useCallback((playlistId) => {
     if (playlistTracksRef.current.has(playlistId)) return;
@@ -496,11 +516,6 @@ export default function App() {
   useEffect(() => {
     playerPlayRef.current = player.play;
   }, [player.play]);
-
-  const playerSetAppleMusicNowPlayingRef = useRef(player.setAppleMusicNowPlaying);
-  useEffect(() => {
-    playerSetAppleMusicNowPlayingRef.current = player.setAppleMusicNowPlaying;
-  }, [player.setAppleMusicNowPlaying]);
 
   const fetchTracksRef = useRef(fetchPlaylistTracks);
   useEffect(() => {
@@ -714,7 +729,12 @@ export default function App() {
           const currentQueue = appleInterleavedQueueRef.current ?? [];
           const remainingFromRef = currentQueue.slice(currentPosition + 1);
 
-          const arrays = [newRawFlat, remainingFromRef];
+          const currentId = music.nowPlayingItem?.attributes?.playParams?.id ?? music.nowPlayingItem?.id;
+          const filteredRemaining = remainingFromRef.filter((t) =>
+            (t.attributes?.playParams?.id ?? t.id) !== currentId
+          );
+
+          const arrays = [newRawFlat, filteredRemaining];
           const combinedTracks = [];
           const maxLen = Math.max(...arrays.map((a) => a.length));
           for (let i = 0; i < maxLen; i++) {
@@ -735,7 +755,7 @@ export default function App() {
 
           currentQueueKeyRef.current = queueKey;
 
-          await music.setQueue({ items: mediaItems, startWith: 1 });
+          await music.setQueue({ items: mediaItems, startWith: 0 });
           music.shuffleMode = window.MusicKit.PlayerShuffleMode.off;
           await music.play();
           console.log("APPLE_TRANSITION_SUCCESS", mediaItems.length, "tracks");
