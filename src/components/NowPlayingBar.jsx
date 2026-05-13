@@ -216,7 +216,7 @@ export default function NowPlayingBar({
               onClick={() => onAppleStart?.()}
               title="Start Playback"
             >
-              Start
+              ▶
             </button>
           ) : (
             <button
