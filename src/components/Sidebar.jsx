@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import "./Sidebar.css";
 
 const PLAYLIST_ACCENT_COLORS = [
@@ -32,8 +32,15 @@ export default function Sidebar({
   onPlaylistClick,
   onPlaylistHover,
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
   const displayName = user?.name ?? "Guest";
   const avatarLetter = (user?.name?.trim?.()?.charAt(0) || "G").toUpperCase();
+
+  const filteredPlaylists = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return playlists;
+    return playlists.filter((pl) => (pl.name ?? "").toLowerCase().includes(q));
+  }, [playlists, searchQuery]);
 
   const blocksByPlaylist = useMemo(() => {
     const m = new Map();
@@ -52,10 +59,23 @@ export default function Sidebar({
 
       <div className="sidebar-playlists">
         <p className="sidebar-section-label">PLAYLISTS</p>
+        <div className="sidebar-search">
+          <input
+            type="search"
+            className="sidebar-search-input"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search playlists..."
+            aria-label="Search playlists"
+          />
+        </div>
         <div className="sidebar-playlist-scroll">
-          {playlists.map((pl, i) => {
+          {filteredPlaylists.map((pl, i) => {
             const count = blocksByPlaylist.get(pl.id) ?? 0;
-            const accent = pl.color ?? PLAYLIST_ACCENT_COLORS[i % PLAYLIST_ACCENT_COLORS.length];
+            const origIdx = playlists.findIndex((p) => p.id === pl.id);
+            const colorIdx = origIdx >= 0 ? origIdx : i;
+            const clickIdx = origIdx >= 0 ? origIdx : i;
+            const accent = pl.color ?? PLAYLIST_ACCENT_COLORS[colorIdx % PLAYLIST_ACCENT_COLORS.length];
             const coverUrl = pl.artwork ?? null;
             const n = pl.songCount ?? 0;
             const songsLabel = `${n} song${n === 1 ? "" : "s"}`;
@@ -73,11 +93,11 @@ export default function Sidebar({
                 style={{ "--pl-accent": accent }}
                 draggable
                 onMouseEnter={() => onPlaylistHover?.(pl.id)}
-                onClick={() => onPlaylistClick?.(pl, i)}
+                onClick={() => onPlaylistClick?.(pl, clickIdx)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    onPlaylistClick?.(pl, i);
+                    onPlaylistClick?.(pl, clickIdx);
                   }
                 }}
                 onDragStart={(e) => {
@@ -110,7 +130,7 @@ export default function Sidebar({
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onPlaylistClick?.(pl, i);
+                    onPlaylistClick?.(pl, clickIdx);
                   }}
                 >
                   +
