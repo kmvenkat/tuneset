@@ -10,6 +10,8 @@ export default function NowPlayingBar({
   playlistTracksRef,
   onAppleStart,
   onUpdateBlock: _onUpdateBlock,
+  isQueueOpen = false,
+  onQueueToggle,
 }) {
   const {
     isPlaying, currentSong,
@@ -228,6 +230,15 @@ export default function NowPlayingBar({
             </button>
           )}
           <button className="np-btn np-btn-md" onClick={handleNext} title="Next" disabled={!currentSong}>⏭</button>
+          <button
+            type="button"
+            className={`np-btn np-btn-md${isQueueOpen ? " np-queue-toggle-active" : ""}`}
+            onClick={() => onQueueToggle?.()}
+            title={isQueueOpen ? "Hide queue" : "Show queue"}
+            disabled={!currentSong}
+          >
+            ≡
+          </button>
           <button className="np-btn np-btn-sm">↻</button>
         </div>
 

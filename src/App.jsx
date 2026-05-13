@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useSchedule } from "./hooks/useSchedule";
 import { usePlayer } from "./hooks/usePlayer";
 import { loadGsiClient, getYoutubePlaylistTracks } from "./services/youtube";
@@ -12,6 +12,7 @@ import {
 import Sidebar from "./components/Sidebar";
 import ScheduleGrid from "./components/ScheduleGrid";
 import NowPlayingBar from "./components/NowPlayingBar";
+import QueueDrawer from "./components/QueueDrawer";
 import "./App.css";
 import { getOrderedActiveBlocksForNow } from "./utils/scheduleSegments";
 
@@ -120,6 +121,7 @@ export default function App() {
   const playlistHoverDebounceRef = useRef(null);
   /** Bumped when tracks cache is populated so Sidebar can re-read durations. */
   const [playlistTracksVersion, setPlaylistTracksVersion] = useState(0);
+  const [isQueueOpen, setIsQueueOpen] = useState(false);
 
   useEffect(() => {
     musicSourceRef.current = musicSource;
@@ -906,6 +908,45 @@ export default function App() {
 
   const handleGridClick = useCallback(() => setSelectedBlockId(null), []);
 
+  const drawerQueue = useMemo(() => {
+    if (musicSource === "youtube") {
+      return (player.queue ?? []).map((t) => ({
+        title: t.title,
+        artist: t.artist,
+        playlistName: t.playlistName,
+        playlistColor: t.playlistColor,
+        appleMusicId: t.appleMusicId,
+        videoId: t.videoId,
+      }));
+    }
+    if (musicSource === "apple") {
+      return (appleInterleavedQueueRef.current ?? []).map((t) => ({
+        title: t.attributes?.name,
+        artist: t.attributes?.artistName,
+        playlistName: t.playlistName,
+        playlistColor: t.playlistColor,
+        appleMusicId: t.attributes?.playParams?.id ?? t.id,
+        videoId: t.videoId,
+      }));
+    }
+    return [];
+  }, [musicSource, player.queue, isQueueOpen, player.currentSong]);
+
+  const queueDrawerCurrentIndex = useMemo(() => {
+    if (musicSource === "youtube") {
+      return typeof player.currentSongIndex === "number" ? player.currentSongIndex : 0;
+    }
+    if (musicSource !== "apple") return 0;
+    const cur = player.currentSong;
+    if (!cur || !drawerQueue.length) return 0;
+    const i = drawerQueue.findIndex(
+      (row) =>
+        (cur.appleMusicId != null && row.appleMusicId === cur.appleMusicId) ||
+        (cur.videoId != null && row.videoId === cur.videoId)
+    );
+    return i >= 0 ? i : 0;
+  }, [musicSource, player.currentSong, player.currentSongIndex, drawerQueue]);
+
   if (!authBootstrapped) {
     return (
       <div className="auth-loading">
@@ -984,8 +1025,16 @@ export default function App() {
           playlistTracksRef={playlistTracksRef}
           onAppleStart={handleAppleStart}
           onUpdateBlock={handleUpdateBlock}
+          isQueueOpen={isQueueOpen}
+          onQueueToggle={() => setIsQueueOpen((o) => !o)}
         />
       </div>
+      <QueueDrawer
+        isOpen={isQueueOpen}
+        onClose={() => setIsQueueOpen(false)}
+        queue={drawerQueue}
+        currentIndex={queueDrawerCurrentIndex}
+      />
     </div>
   );
 }

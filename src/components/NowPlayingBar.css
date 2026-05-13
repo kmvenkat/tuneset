@@ -143,6 +143,11 @@
 
 .np-btn-md:hover:not(:disabled) { color: var(--text); }
 
+.np-queue-toggle-active {
+  color: var(--text);
+  background: var(--card-hover);
+}
+
 .np-play {
   width: 38px;
   height: 38px;
